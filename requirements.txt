@@ -4,3 +4,6 @@ google-genai
 python-multipart
 pandas
 openpyxl
+google-cloud-aiplatform
+requests
+python-dotenv
