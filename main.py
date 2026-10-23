@@ -1,0 +1,754 @@
+import os
+import io
+import uuid
+import re
+import base64
+import unicodedata
+from datetime import datetime
+from pathlib import Path
+from typing import List, Optional
+
+# Novedad: Librerías estándar de Python para crear correos EML funcionales
+from email.message import EmailMessage
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.image import MIMEImage
+
+from fastapi import FastAPI, Request, File, UploadFile, Form
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
+from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
+import pandas as pd
+from google import genai
+from google.genai import types
+
+# --- 1. CONFIGURACIÓN INICIAL ---
+import sys
+
+# Cuando se ejecuta como .exe compilado con PyInstaller, los archivos de datos
+# (templates, uploads) se copian junto al ejecutable. BASE_DIR apunta a esa carpeta.
+if getattr(sys, 'frozen', False):
+    # Directorio donde vive el .exe
+    BASE_DIR = Path(sys.executable).resolve().parent
+else:
+    BASE_DIR = Path(__file__).resolve().parent
+
+# Cargar .env desde la misma carpeta que el exe (o el script en desarrollo)
+load_dotenv(dotenv_path=BASE_DIR / ".env")
+
+TEMPLATES_DIR = BASE_DIR / "templates"
+UPLOADS_DIR = BASE_DIR / "uploads"
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+app = FastAPI(title="Generador de Actas Consensus")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+API_KEY_PROYECTO = os.getenv("GEMINI_API_KEY", "")
+try:
+    if API_KEY_PROYECTO:
+        client = genai.Client(api_key=API_KEY_PROYECTO)
+        print("✅ Cliente Gemini inicializado con éxito.")
+    else:
+        print("⚠️ Advertencia: GEMINI_API_KEY no encontrada.")
+        client = None
+except Exception as err:
+    print(f"⚠️ Error al inicializar cliente Gemini: {err}")
+    client = None
+
+RUTA_IMAGEN_FIRMA = TEMPLATES_DIR / "Imagen1.jpg"
+AUDIO_UPLOADS_DIR = UPLOADS_DIR / "Audios_Consultoria"
+AUDIO_EXTENSIONS = {".webm", ".wav", ".mp3", ".m4a", ".ogg", ".mp4"}
+AUDIO_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def nombre_archivo_seguro(texto, valor_default):
+    nombre = "".join(c if c.isalnum() or c in "-_" else "_" for c in str(texto or ""))
+    nombre = re.sub(r"_+", "_", nombre).strip("_-")[:80]
+    return nombre or valor_default
+
+
+def fecha_audio(fecha_texto):
+    fecha = pd.to_datetime(fecha_texto, dayfirst=True, errors="coerce")
+    return fecha.to_pydatetime() if pd.notna(fecha) else datetime.now()
+
+
+@app.post("/guardar-audio/")
+async def guardar_audio(
+    audio: UploadFile = File(...),
+    nombre_cliente: str = Form(default="Cliente"),
+    fecha_ejecucion: str = Form(default=""),
+):
+    if not audio.filename:
+        return JSONResponse(status_code=400, content={"success": False, "error": "No se recibió un archivo de audio."})
+
+    sufijo = Path(audio.filename).suffix.lower()
+    if sufijo not in AUDIO_EXTENSIONS:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Formato de audio no compatible."})
+
+    contenido = await audio.read()
+    if not contenido:
+        return JSONResponse(status_code=400, content={"success": False, "error": "El archivo de audio está vacío."})
+
+    fecha = fecha_audio(fecha_ejecucion)
+    meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+    carpeta_mes = AUDIO_UPLOADS_DIR / f"{meses[fecha.month - 1]}_{fecha.year}"
+    carpeta_mes.mkdir(parents=True, exist_ok=True)
+
+    cliente_seguro = nombre_archivo_seguro(nombre_cliente, "Cliente")
+    fecha_nombre = fecha.strftime("%Y-%m-%d")
+    hora_nombre = datetime.now().astimezone().strftime("%H-%M-%S-%f")
+    nombre_audio = f"{cliente_seguro}_{fecha_nombre}_{hora_nombre}{sufijo}"
+    ruta_audio = carpeta_mes / nombre_audio
+    ruta_audio.write_bytes(contenido)
+
+    ruta_relativa = ruta_audio.relative_to(UPLOADS_DIR).as_posix()
+    return JSONResponse(content={"success": True, "ruta": f"uploads/{ruta_relativa}", "nombre": nombre_audio})
+
+
+def preparar_excel_para_prompt(contenido_bytes, mes=None, anio=None):
+    """Reduce el texto del Excel sin modificar el archivo original ni descartar datos ambiguos."""
+    hojas = pd.read_excel(io.BytesIO(contenido_bytes), sheet_name=None)
+    tablas = []
+
+    meses = {
+        "enero": 1, "ene": 1, "febrero": 2, "feb": 2, "marzo": 3, "mar": 3,
+        "abril": 4, "abr": 4, "mayo": 5, "may": 5, "junio": 6, "jun": 6,
+        "julio": 7, "jul": 7, "agosto": 8, "ago": 8, "septiembre": 9,
+        "setiembre": 9, "sep": 9, "set": 9, "octubre": 10, "oct": 10,
+        "noviembre": 11, "nov": 11, "diciembre": 12, "dic": 12,
+    }
+    mes_normalizado = unicodedata.normalize("NFKD", str(mes or "").casefold())
+    mes_normalizado = "".join(c for c in mes_normalizado if not unicodedata.combining(c)).strip()
+    numero_mes = int(mes_normalizado) if mes_normalizado.isdigit() and 1 <= int(mes_normalizado) <= 12 else meses.get(mes_normalizado)
+    try:
+        anio_numero = int(anio)
+    except (TypeError, ValueError):
+        anio_numero = None
+
+    for nombre_hoja, df in hojas.items():
+        # Retira solo filas y columnas completamente vacías, sin alterar celdas con datos.
+        df = df.dropna(axis=0, how="all").dropna(axis=1, how="all")
+        if df.empty:
+            continue
+
+        if numero_mes and anio_numero:
+            candidatos_fecha = []
+            for columna in df.columns:
+                nombre = unicodedata.normalize("NFKD", str(columna).casefold())
+                nombre = "".join(c for c in nombre if not unicodedata.combining(c))
+                es_inicio = ("inicio" in nombre or "start" in nombre) and not any(
+                    termino in nombre for termino in ("fin", "final", "end", "creacion", "registro")
+                )
+                if es_inicio and any(termino in nombre for termino in ("fecha", "date", "inicio", "start")):
+                    candidatos_fecha.append(columna)
+
+            # Filtra únicamente con una columna de inicio identificable y fechas interpretables.
+            if len(candidatos_fecha) == 1:
+                valores_fecha = df[candidatos_fecha[0]]
+                fechas = pd.to_datetime(valores_fecha, errors="coerce", dayfirst=True)
+                valores_no_vacios = valores_fecha.notna()
+                if valores_no_vacios.any() and fechas[valores_no_vacios].notna().all():
+                    df = df.loc[(fechas.dt.month == numero_mes) & (fechas.dt.year == anio_numero)]
+
+        if df.empty:
+            continue
+        tabla_tsv = df.fillna("").to_csv(sep="\t", index=False, lineterminator="\n")
+        tablas.append(f"=== HOJA: {nombre_hoja} ===\n{tabla_tsv.rstrip()}")
+
+    return "\n\n".join(tablas)
+
+def llamar_gemini_con_fallback(client_gemini, contents, modelos_prioridad=None):
+    if modelos_prioridad is None:
+        modelos_prioridad = ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-2.5-flash"]
+    ultimo_error = None
+    for model_name in modelos_prioridad:
+        try:
+            return client_gemini.models.generate_content(model=model_name, contents=contents)
+        except Exception as e:
+            err_str = str(e)
+            ultimo_error = e
+            if any(term in err_str for term in ["503", "429", "UNAVAILABLE", "RESOURCE_EXHAUSTED", "404", "high demand"]):
+                print(f"⚠️ Modelo '{model_name}' no disponible temporalmente ({err_str[:80]}...). Probando fallback...")
+                continue
+            raise e
+    # pyrefly: ignore[bad-raise]
+    raise ultimo_error
+    
+# --- 2. RUTA PRINCIPAL (Sin cambios) ---
+@app.get("/", response_class=HTMLResponse)
+async def read_root(request: Request):
+    try:
+        return templates.TemplateResponse("index.html", {"request": request})
+    except Exception:
+        ruta_raiz_html = TEMPLATES_DIR / "index.html"
+        if ruta_raiz_html.exists():
+            return HTMLResponse(content=ruta_raiz_html.read_text(encoding="utf-8"))
+        return HTMLResponse(content=f"Error: No se encuentra {ruta_raiz_html}", status_code=500)
+
+# =======================================================================
+# 3. ENDPOINT DE PROCESAMIENTO -> AJUSTES APLICADOS EN ESTA SECCIÓN
+# =======================================================================
+@app.post("/procesar-acta/")
+async def procesar_acta(
+    archivos: List[UploadFile] = File(default=None),
+    audio: Optional[UploadFile] = None,
+    tipo_proceso: str = Form(default="consultoria"),
+    nombre_cliente: str = Form(default="[Nombre del Cliente]"),
+    responsable_cliente: str = Form(default="[Responsable del Cliente]"),
+    informacion_extra: str = Form(default=""),
+    fecha_ejecucion: str = Form(default="[Fecha de Ejecución]"),
+    horas_ejecutadas: str = Form(default="[Horas Ejecutadas]"),
+    mes_ejecucion: Optional[str] = Form(default=""),
+    anio_ejecucion: Optional[str] = Form(default="")
+):
+    if not client:
+        return JSONResponse(status_code=500, content={"success": False, "error": "Cliente Gemini no configurado."})
+
+    try:
+        if tipo_proceso == "implementacion":
+            if not mes_ejecucion or not anio_ejecucion:
+                return JSONResponse(status_code=400, content={"success": False, "error": "El Mes y el Año son requeridos."})
+            
+            mes_limpio, anio_limpio = mes_ejecucion.strip(), anio_ejecucion.strip()
+            periodo_solicitado = f"{mes_limpio} de {anio_limpio}"
+            
+            archivo_excel = next((f for f in archivos if f.filename and f.filename.lower().endswith((".xlsx", ".xls"))), None)
+            if not archivo_excel:
+                return JSONResponse(status_code=400, content={"success": False, "error": "Adjunta un archivo Excel (.xlsx, .xls)."})
+
+            contenido_bytes = await archivo_excel.read()
+            texto_tablas_excel = f"Archivo: {archivo_excel.filename}\n\n" + preparar_excel_para_prompt(
+                contenido_bytes, mes=mes_limpio, anio=anio_limpio
+            )
+            
+           
+            # ** CAMBIO 1: INSTRUCCIONES MÁS ESTRICTAS EN EL PROMPT SOBRE LA ESTRUCTURA **
+            prompt_implementacion = f"""
+          
+                ACTÚA COMO UN SISTEMA DE AUTOMATIZACIÓN DE REPORTES PARA CONSENSUS S.A.S.
+
+                Procesa los datos proporcionados, agrúpalos por cliente y genera automáticamente el contenido para los archivos HTML y EML de cada cliente, además del resumen final. No pidas aprobación, confirmación ni autorización. No pauses el proceso para esperar respuesta.
+
+                DATOS DE CONTEXTO:
+                - Mes/Año a procesar: {mes_limpio}/{anio_limpio}
+                - Período: {periodo_solicitado}
+                - Directorio de exportación: uploads/
+                - Datos del Excel: {texto_tablas_excel}
+
+
+                INSTRUCCIONES DE PROCESAMIENTO:
+
+                1. FILTRADO ESTRICTO
+                Usa únicamente registros cuya fecha de inicio corresponda al mes '{mes_limpio}' del año '{anio_limpio}'. No uses una fecha de creación o registro como sustituto de la fecha de inicio. Descarta los registros de otros períodos y las actividades identificadas explícitamente como proyectadas o futuras.
+
+                2. MAPEO DE COLUMNAS
+                Identifica automáticamente los nombres equivalentes a:
+                - Cuenta = Cliente
+                - Descripción = Actividad
+                - Fecha de inicio
+                - Fecha de fin
+                - Horas
+                - Persona = Recurso
+                - Correo Responsable = destinatario del correo
+                - Tipo de actividad, Acción y responsable de proyecto, si existen
+
+                3. LIMPIEZA Y VALIDACIÓN
+                - Excluye registros vacíos, duplicados exactos y registros con horas menores o iguales a cero.
+                - Valida que cliente, actividad, fechas, horas y recurso estén disponibles.
+                - Conserva las horas registradas en el Excel. No compares las horas con la diferencia entre la hora de inicio y la hora de fin ni generes observaciones por esa diferencia: el intervalo puede incluir almuerzo, pausas o períodos de inactividad.
+                - No cambies el archivo Excel original.
+                - No interpretes una Acción genérica como “Realizar” como prueba de que la actividad está cerrada.
+
+                4. REVISIÓN ORTOGRÁFICA
+                Antes de generar los archivos, realiza una revisión ortográfica básica de las descripciones: corrige errores evidentes, tildes y espacios sin cambiar el sentido técnico. La primera letra de cada actividad debe ir en mayúscula. Conserva las siglas y nombres propios.
+
+                5. OBSERVACIONES
+                Las observaciones de control interno no deben aparecer en los informes para clientes. Incluye una observación en el HTML únicamente cuando la revisión de los datos identifique información clara y relevante que el cliente deba conocer. Omite observaciones genéricas, por ejemplo, que se encontró un correo responsable. No incluyas observaciones sobre horas frente a intervalos horarios. Si no existe una observación pertinente para el cliente, deja vacío el contenido del espacio de observaciones ya previsto en la plantilla; no agregues, elimines ni reordenes elementos HTML.
+
+                6. AGRUPACIÓN Y CÁLCULOS
+                Agrupa los registros válidos por cliente/cuenta. Para cada cliente calcula:
+                - Cantidad de actividades
+                - Total de horas, sumando el campo Horas
+                - Recursos participantes
+                - Hasta tres actividades principales, sin duplicarlas
+                Ordena las filas de actividades cronológicamente por fecha y hora de inicio.
+
+                7. ESTRUCTURA HTML Y EML INMUTABLE
+                La estructura de la PLANTILLA HTML es obligatoria. No la rediseñes ni cambies su estructura, jerarquía, orden de secciones, etiquetas, estilos, colores, tabla, columnas, dimensiones, márgenes, tipografía, firma ni pie de página. Reemplaza únicamente los textos variables, las filas del <tbody>, el resumen y los placeholders existentes.
+
+                Conserva el mismo diseño visual de referencia, compatible con Outlook: fondo gris claro (#f4f6f9), contenedor blanco centrado de máximo 750 px, encabezado azul (#003366) centrado, tipografía Arial, secciones con márgenes y rellenos amplios, bloque de actividades en tarjeta blanca con borde suave, resumen en tarjeta gris clara con borde izquierdo azul y pie de firma separado por una línea. Usa tablas HTML para la estructura principal y estilos en línea; no uses JavaScript, CSS externo ni recursos web externos. Mantén este diseño en el HTML y en el EML.
+
+                El cuerpo del correo debe comenzar, inmediatamente después del encabezado, con estos dos párrafos:
+                “Buen día,”
+                “Comparto la relación de actividades ejecutadas durante el mes de {mes_limpio} de {anio_limpio}.”
+
+                En la tabla usa estas columnas y en este orden: Actividad, Fecha, Hora inicio, Hora fin y Horas. No incluyas la columna Recurso en la tabla; los recursos participantes se muestran únicamente en el bloque de resumen. Presenta fechas en formato DD/MM/AAAA y horas en formato de 24 horas.
+
+                No incluyas destinatario ni asunto como texto visible dentro del cuerpo HTML. El destinatario y el asunto van únicamente en los encabezados del EML.
+
+                En el resumen incluye el período, el nombre del cliente, la cantidad de actividades, las horas registradas, el tipo de actividad cuando esté disponible, los recursos participantes y las actividades principales. Presenta las actividades con la revisión ortográfica básica y primera letra mayúscula.
+
+                El orden del cuerpo es fijo: saludo e introducción, actividades realizadas, detalles de la sesión con observaciones, párrafos de confirmación y firma. Solo mejora la presentación visual; no muevas, elimines ni reordenes estas secciones ni cambies su contenido.
+
+                Conserva al final el mismo bloque de firma de las actas de consultoría, con una línea superior, tipografía y espaciado uniformes. Mantén estos datos en este orden y sin variaciones:
+                Presenta la firma visualmente así: “Cordialmente,” en una línea; en la siguiente, “Alexander Acosta Beltrán” en negrita y azul oscuro; debajo “Consultor SAP Business One”; después las líneas “Tel: +57 601 7431624” y “Móvil: 3212429494”. No conviertas estos datos en una lista ni los agrupes en una sola línea.
+                Alexander Acosta Beltrán
+                Consultor SAP Business One
+                Tel: +57 601 7431624
+                Móvil: 3212429494
+                CONSENSUS S.A.S.
+
+
+
+                Debajo de CONSENSUS S.A.S., incluye la imagen de firma con ancho máximo de 250 px y la etiqueta exacta:
+                <img src="cid:imagen_firma" alt="Consensus S.A.S." style="display: block; max-width: 250px; height: auto; margin-top: 10px;" />
+
+                8. DESTINATARIO Y ASUNTO
+                Para cada cliente usa el correo válido de Correo Responsable. Si hay varios correos responsables válidos y distintos para el mismo cliente, inclúyelos en el encabezado To, separados por punto y coma, sin duplicarlos. Si no hay correo, escribe exactamente [Correo no encontrado]. No inventes direcciones.
+
+                El asunto debe tener exactamente este formato:
+                Relación de actividades realizadas - [Nombre del Cliente] - {mes_limpio.upper()} {anio_limpio}
+
+                9. FORMATO ESTRICTO DE LA RESPUESTA
+                Para cada cliente genera tres bloques en este orden, separados por la línea literal ----DELIMITADOR_PARTE----. No añadas explicaciones, saludos ni texto fuera de la estructura indicada.
+
+                <!-- INICIO_CLIENTE: [Nombre del Cliente] -->
+                [CONTENIDO_HTML_COMPLETO, siguiendo exactamente la PLANTILLA HTML]
+                ----DELIMITADOR_PARTE----
+                To: [Correo del Responsable o Correo no encontrado]
+                Subject: Relación de actividades realizadas - [Nombre del Cliente] - {mes_limpio.upper()} {anio_limpio}
+                ----DELIMITADOR_PARTE----
+                | [Nombre Cliente] | [Horas Totales] | [Correo del Responsable o Correo no encontrado] | ✅ Generado |
+                <!-- FIN_CLIENTE: [Nombre del Cliente] -->
+
+                Repite los bloques para todos los clientes procesados. No incluyas Markdown adicional ni cambies el texto de los delimitadores o comentarios de inicio y fin.
+
+                10. GENERACIÓN DE ARCHIVOS
+                El HTML completo de cada primer bloque se usará como cuerpo del EML de ese cliente. Genera el EML con los encabezados To y Subject del segundo bloque, y el HTML como cuerpo. No adjuntes el archivo HTML. Marca el EML como no enviado para que pueda revisarse antes de enviarlo. Escribe los archivos en uploads/ usando nombres seguros basados en el nombre del cliente y el período. Genera también el resumen final a partir de las líneas Markdown del tercer bloque.
+            """
+
+            respuesta_gemini = llamar_gemini_con_fallback(client, contents=[prompt_implementacion])
+
+            # Crear subcarpeta por período: uploads/Mes_Año/
+            nombre_carpeta_periodo = f"{mes_limpio}_{anio_limpio}"
+            DIR_PERIODO = UPLOADS_DIR / nombre_carpeta_periodo
+            DIR_PERIODO.mkdir(parents=True, exist_ok=True)
+
+            resumen_final_md = [
+                f"# 📊 Resumen de Procesamiento: {periodo_solicitado}",
+                f"**Archivos generados en la carpeta:** `{str(DIR_PERIODO)}`", "---",
+                "### 📂 Archivos Generados", "| Cliente / Cuenta | Horas Totales | Destinatario | Estado |", "| :--- | :--- | :--- | :--- |"
+            ]
+            errores_proceso = []
+            clientes_procesados = 0
+
+            bloques_cliente = re.findall(r'<!-- INICIO_CLIENTE: (.*?) -->(.*?)<!-- FIN_CLIENTE: \1 -->', respuesta_gemini.text, re.DOTALL)
+
+            for nombre_cliente_match, contenido_bloque in bloques_cliente:
+                clientes_procesados += 1
+                try:
+                    partes = contenido_bloque.split('----DELIMITADOR_PARTE----')
+                    if len(partes) < 3: continue
+                    
+                    contenido_html, encabezados_eml, resumen_md = partes[0].strip(), partes[1].strip(), partes[2].strip()
+                    safe_cliente = "".join(c for c in nombre_cliente_match if c.isalnum() or c in " ").strip().replace(" ", "_")
+
+                    # Preparar HTML para navegador incrustando Base64 de la imagen de firma
+                    html_para_archivo = contenido_html
+                    if RUTA_IMAGEN_FIRMA.exists():
+                        try:
+                            b64_img = base64.b64encode(RUTA_IMAGEN_FIRMA.read_bytes()).decode('utf-8')
+                            uri_b64 = f"data:image/jpeg;base64,{b64_img}"
+                            if 'cid:imagen_firma' in html_para_archivo:
+                                html_para_archivo = html_para_archivo.replace('cid:imagen_firma', uri_b64)
+                            elif 'CONSENSUS S.A.S.</p>' in html_para_archivo and uri_b64 not in html_para_archivo:
+                                html_para_archivo = html_para_archivo.replace('CONSENSUS S.A.S.</p>', f'CONSENSUS S.A.S.</p><br><img src="{uri_b64}" alt="Consensus S.A.S." style="display: block; max-width: 250px; height: auto; margin-top: 10px;" />', 1)
+                        except Exception as e_b64:
+                            print(f"Advertencia al incrustar Base64 en HTML: {e_b64}")
+
+                    nombre_html = f"{safe_cliente}_Reporte_{mes_limpio}_{anio_limpio}.html"
+                    (DIR_PERIODO / nombre_html).write_text(html_para_archivo, encoding="utf-8")
+                    
+                    # ** CAMBIO 2: LÓGICA PARA CREAR EL EML EDITABLE **
+                    msg = EmailMessage()
+                    to_addr = re.search(r'To: (.*)', encabezados_eml)
+                    subject = re.search(r'Subject: (.*)', encabezados_eml)
+                    msg['To'] = to_addr.group(1).strip() if to_addr else '[Correo no especificado]'
+                    msg['Subject'] = subject.group(1).strip() if subject else f"Reporte de Actividades - {nombre_cliente_match}"
+                    msg['From'] = 'Alexander Acosta <aacosta@consensussa.com>'
+                    
+                    # Encabezado clave para que Outlook lo abra como borrador
+                    msg['X-Unsent'] = '1'
+                    
+                    html_para_eml = contenido_html
+                    if 'cid:imagen_firma' not in html_para_eml and 'CONSENSUS S.A.S.</p>' in html_para_eml:
+                        html_para_eml = html_para_eml.replace('CONSENSUS S.A.S.</p>', 'CONSENSUS S.A.S.</p><br><img src="cid:imagen_firma" alt="Consensus S.A.S." style="display: block; max-width: 250px; height: auto; margin-top: 10px;" />', 1)
+
+                    msg.set_content("Este es un correo en formato HTML. Por favor, utiliza un cliente de correo compatible.")
+                    msg.add_alternative(html_para_eml, subtype='html')
+
+                    # Adjuntar imagen como recurso CID relacionado al HTML para Outlook
+                    if RUTA_IMAGEN_FIRMA.exists():
+                        try:
+                            msg.get_payload()[1].add_related(RUTA_IMAGEN_FIRMA.read_bytes(), 'image', 'jpeg', cid='<imagen_firma>')
+                        except Exception as e_cid:
+                            print(f"Advertencia al adjuntar imagen CID a EML: {e_cid}")
+                    
+                    nombre_eml = f"{safe_cliente}_Correo_{mes_limpio}_{anio_limpio}.eml"
+                    with open(DIR_PERIODO / nombre_eml, 'w', encoding='utf-8') as f_eml:
+                        f_eml.write(msg.as_string())
+
+                    resumen_final_md.append(resumen_md.replace('[Nombre_Archivo].html', f'`{nombre_html}`').replace('[Nombre_Archivo].eml', f'`{nombre_eml}`'))
+                
+                except Exception as e_gen:
+                    errores_proceso.append(f"Fallo al generar archivos para '{nombre_cliente_match}': {str(e_gen)}")
+
+            if errores_proceso:
+                resumen_final_md.append("\n---\n### ⚠️ Errores\n" + "\n".join(f"- {e}" for e in errores_proceso))
+            if not bloques_cliente:
+                resumen_final_md.append("| *No se generaron archivos. Revisa el Excel o la respuesta de la IA.* | | | |")
+
+            return JSONResponse(content={ "success": True, "mensaje": f"Proceso finalizado. Archivos guardados en: uploads/{nombre_carpeta_periodo}/", "ruta_exportacion": f"uploads/{nombre_carpeta_periodo}/", "acta_borrador": "\n".join(resumen_final_md) })
+        
+        # --- Flujo de Consultoría Posventa ---
+        else:
+            cliente_nombre_final = nombre_cliente.strip() if nombre_cliente and nombre_cliente.strip() not in ("", "[Nombre del Cliente]") else "Cliente"
+            responsable_final = responsable_cliente.strip() if responsable_cliente and responsable_cliente.strip() not in ("", "[Responsable del Cliente]") else "Responsable"
+            fecha_final = fecha_ejecucion.strip() if fecha_ejecucion and fecha_ejecucion.strip() not in ("", "[Fecha de Ejecución]") else "Fecha"
+            horas_final = horas_ejecutadas.strip() if horas_ejecutadas and horas_ejecutadas.strip() not in ("", "[Horas Ejecutadas]") else "0"
+
+            partes_insumos = []
+            if audio and audio.filename and audio.filename.strip():
+                bytes_audio = await audio.read()
+                mime = audio.content_type or 'audio/webm'
+                if 'webm' in mime:
+                    mime = 'audio/webm'
+                partes_insumos.append(types.Part.from_bytes(data=bytes_audio, mime_type=mime))
+            
+            texto_documentos = ""
+            if archivos:
+                for arch in archivos:
+                    if arch and arch.filename and arch.filename.strip():
+                        bytes_arch = await arch.read()
+                        nombre_lower = arch.filename.lower()
+                        if nombre_lower.endswith((".txt", ".csv", ".log", ".text", ".md", ".json", ".sql", ".ini", ".rtf")):
+                            texto_archivo = ""
+                            for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1", "iso-8859-1", "utf-16"):
+                                try:
+                                    texto_archivo = bytes_arch.decode(enc)
+                                    break
+                                except Exception:
+                                    pass
+                            if not texto_archivo:
+                                texto_archivo = bytes_arch.decode("utf-8", errors="ignore")
+                            texto_documentos += f"\n--- Archivo Adjunto ({arch.filename}) ---\n{texto_archivo.strip()}\n"
+                        elif nombre_lower.endswith((".xlsx", ".xls")):
+                            try:
+                                texto_excel = preparar_excel_para_prompt(bytes_arch)
+                                texto_documentos += f"\n--- Archivo Excel ({arch.filename}) ---\n{texto_excel}\n"
+                            except Exception as e_xl:
+                                print(f"Error al leer excel en consultoría: {e_xl}")
+                        elif nombre_lower.endswith(".docx"):
+                            try:
+                                import docx
+                                doc = docx.Document(io.BytesIO(bytes_arch))
+                                parrafos = [p.text for p in doc.paragraphs if p.text.strip()]
+                                texto_documentos += f"\n--- Documento Word ({arch.filename}) ---\n" + "\n".join(parrafos) + "\n"
+                            except Exception as e_docx:
+                                print(f"Error al leer docx: {e_docx}")
+                        elif nombre_lower.endswith(".pdf"):
+                            partes_insumos.append(types.Part.from_bytes(data=bytes_arch, mime_type="application/pdf"))
+                        elif nombre_lower.endswith((".png", ".jpg", ".jpeg", ".webp")):
+                            mime_img = "image/png" if nombre_lower.endswith(".png") else "image/jpeg"
+                            partes_insumos.append(types.Part.from_bytes(data=bytes_arch, mime_type=mime_img))
+                        else:
+                            try:
+                                texto_generico = bytes_arch.decode("utf-8-sig", errors="ignore")
+                                if texto_generico.strip():
+                                    texto_documentos += f"\n--- Archivo ({arch.filename}) ---\n{texto_generico.strip()}\n"
+                            except Exception:
+                                pass
+
+            if not partes_insumos and not texto_documentos.strip() and not informacion_extra.strip():
+                return JSONResponse(status_code=400, content={"success": False, "error": "Debes adjuntar al menos un archivo de texto, audio o ingresar notas del servicio."})
+
+            notas_limpias = informacion_extra.strip() if informacion_extra.strip() else "(Ninguna nota manual ingresada)"
+            documentos_limpios = texto_documentos.strip() if texto_documentos.strip() else "(Ningún contenido de texto en archivos adjuntos)"
+
+            prompt_consultoria = f"""ACTÚA COMO UN CONSULTOR SENIOR DE PROCESOS SAP BUSINESS ONE DE CONSENSUS S.A.S. ESPECIALIZADO EN CONSULTORÍA POSVENTA Y SOPORTE.
+
+Tu labor fundamental es analizar detalladamente los insumos suministrados (archivos adjuntos, notas o audios), identificar y extraer TODAS las tareas, consultas, revisiones técnicas, configuraciones, capacitaciones o actividades realizadas, y generar el archivo HTML formal del correo y los datos de encabezado para exportar como correo y acta.
+
+==================================================
+DATOS GENERALES DEL SERVICIO:
+==================================================
+- CLIENTE: {cliente_nombre_final}
+- RESPONSABLE CLIENTE: {responsable_final}
+- FECHA DE EJECUCIÓN: {fecha_final}
+- HORAS DE CONSULTORÍA: {horas_final} horas
+
+NOTAS DEL CONSULTOR:
+{notas_limpias}
+
+CONTENIDO DE LOS ARCHIVOS ADJUNTOS:
+{documentos_limpios}
+==================================================
+
+REGLAS CRÍTICAS DE EXTRACCIÓN Y PROCESAMIENTO:
+1. EXTRACCIÓN TOTAL DE ACTIVIDADES REALIZADAS:
+   - Extrae e identifica CADA UNA de las tareas, requerimientos, consultas, revisiones, desarrollos o configuraciones técnicas contenidas en el "CONTENIDO DE LOS ARCHIVOS ADJUNTOS", en las "NOTAS DEL CONSULTOR" o en el audio.
+   - Redacta cada actividad con tono profesional, técnico y formal para SAP Business One (ejemplo: "Revisión y parametrización de...", "Análisis y depuración de error en...", "Capacitación al equipo de...", "Validación de informes y consultas SQL en...").
+   - PROHIBIDO TERMINANTEMENTE dejar la lista vacía o escribir textos genéricos o corchetes de plantilla como "[Escribe aquí...]", "[Actividad...]", "(Enumera todas las actividades...)". Todo el contenido debe ser concreto y real.
+   - Si los insumos contienen varios puntos o viñetas, incluye TODOS y cada uno de ellos como actividades separadas dentro de la etiqueta <ol>.
+2. OBSERVACIONES:
+   - Si en los insumos se menciona alguna observación, dificultad, acuerdo o pendiente relevante para el cliente, redáctala claramente.
+   - Si no hay observaciones explícitas, coloca exactamente: Ninguna.
+3. DESTINATARIO Y ASUNTO:
+   - To: Correo del responsable si se encuentra en los insumos, o "{responsable_final}".
+   - Subject: Confirmación de Consultoría SAP Business One - {cliente_nombre_final} - {fecha_final}
+
+4. FORMATO ESTRICTO DE RESPUESTA:
+Debes responder con los siguientes tres bloques separados por la línea delimitadora ----DELIMITADOR_PARTE----.
+No incluyas explicaciones previas ni posteriores, ni bloques de código con comillas invertidas.
+
+<!-- INICIO_CONSULTORIA: {cliente_nombre_final} -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Confirmación de Consultoría SAP Business One</title>
+</head>
+<body style="margin: 0; padding: 20px; background-color: #f4f6f9; font-family: Arial, Helvetica, sans-serif; color: #333333;">
+  <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 750px; background-color: #ffffff; border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden;">
+    <tr>
+      <td style="background-color: #003366; padding: 20px; text-align: center; color: #ffffff;">
+        <h2 style="margin: 0; font-size: 20px; font-weight: normal; letter-spacing: 0.5px;">CONSENSUS S.A.S.</h2>
+        <p style="margin: 5px 0 0 0; font-size: 13px; color: #d0e1fd;">Confirmación de Consultoría Posventa - SAP Business One</p>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding: 25px 30px;">
+        <p style="margin: 0 0 12px 0; font-size: 14px; line-height: 1.5;">Buen día, <strong>{cliente_nombre_final}</strong>.</p>
+        <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.5;">Mediante el presente, me permito confirmar la consultoría prestada, en la cual se llevaron a cabo las siguientes actividades:</p>
+        
+        <div style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 18px 20px; margin-bottom: 25px;">
+          <h3 style="margin: 0 0 12px 0; font-size: 15px; color: #003366; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px;">Actividades Realizadas</h3>
+          <ol style="margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.7; color: #2d3748;">
+            <!-- AQUÍ COLOCAS CADA ACTIVIDAD EXTRAÍDA COMO <li style="margin-bottom: 8px;">Descripción técnica detallada</li> -->
+          </ol>
+        </div>
+
+        <div style="background-color: #f8f9fa; border-left: 4px solid #003366; padding: 15px 20px; margin-bottom: 25px; border-radius: 0 4px 4px 0;">
+          <h3 style="margin: 0 0 10px 0; font-size: 14px; color: #003366; text-transform: uppercase; letter-spacing: 0.5px;">Detalles de la Sesión</h3>
+          <p style="margin: 4px 0; font-size: 13px;"><strong>Responsable de la actividad:</strong> {responsable_final}</p>
+          <p style="margin: 4px 0; font-size: 13px;"><strong>Fecha de ejecución:</strong> {fecha_final}</p>
+          <p style="margin: 4px 0; font-size: 13px;"><strong>Tiempo total ejecutado:</strong> {horas_final} horas</p>
+          <p style="margin: 4px 0; font-size: 13px;"><strong>Observaciones:</strong> [Observación concreta o Ninguna]</p>
+        </div>
+
+        <p style="margin: 0 0 12px 0; font-size: 13px; line-height: 1.5; color: #4a5568;">
+          Lo anterior con la finalidad de confirmar los procesos realizados durante la sesión remota y su aprobación mediante la respuesta de este correo.
+        </p>
+        <p style="margin: 0 0 25px 0; font-size: 13px; line-height: 1.5; color: #4a5568;">
+          Quedo atento ante su confirmación de aprobación por este medio.
+        </p>
+
+        <div style="border-top: 1px solid #e0e0e0; padding-top: 20px; font-size: 13px; color: #333333; line-height: 1.4;">
+          <p style="margin: 0 0 5px 0;">Cordialmente,</p>
+          <p style="margin: 0; font-weight: bold; color: #003366; font-size: 14px;">Alexander Acosta Beltrán</p>
+          <p style="margin: 0;">Consultor SAP Business One</p>
+          <p style="margin: 0;">Tel: +57 601 7431624</p>
+          <p style="margin: 0;">Móvil: 3212429494</p>
+          <p style="margin: 5px 0 0 0; font-weight: bold; color: #003366;">CONSENSUS S.A.S.</p>
+        </div>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+----DELIMITADOR_PARTE----
+To: [Correo o nombre del destinatario]
+Subject: Confirmación de Consultoría SAP Business One - {cliente_nombre_final} - {fecha_final}
+----DELIMITADOR_PARTE----
+| {cliente_nombre_final} | {fecha_final} | {horas_final} hrs | [Nombre_Archivo].html | [Nombre_Archivo].eml | ✅ Generado |
+<!-- FIN_CONSULTORIA: {cliente_nombre_final} -->
+"""
+            partes_insumos.append(prompt_consultoria)
+            respuesta_gemini = llamar_gemini_con_fallback(client, contents=partes_insumos)
+
+            fecha_periodo_consultoria = pd.to_datetime(fecha_final, dayfirst=True, errors="coerce")
+            if pd.notna(fecha_periodo_consultoria):
+                meses_consultoria = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+                nombre_periodo_consultoria = f"{meses_consultoria[fecha_periodo_consultoria.month - 1]}_{fecha_periodo_consultoria.year}"
+            else:
+                nombre_periodo_consultoria = "Sin_fecha"
+            DIR_PERIODO = UPLOADS_DIR / f"Consultoria_{nombre_periodo_consultoria}"
+            DIR_PERIODO.mkdir(parents=True, exist_ok=True)
+
+            resumen_final_md = [
+                f"# 📊 Resumen de Consultoría Posventa",
+                f"**Archivos exportados en la carpeta:** `{str(DIR_PERIODO)}`",
+                "---",
+                "### 📂 Archivos Generados",
+                "| Cliente | Fecha | Horas | Archivo HTML | Archivo EML (Outlook) | Estado |",
+                "| :--- | :--- | :--- | :--- | :--- | :--- |"
+            ]
+            errores_proceso = []
+            nombre_html_primero = ""
+
+            bloques_consultoria = re.findall(
+                r'<!-- INICIO_CONSULTORIA: (.*?) -->(.*?)<!-- FIN_CONSULTORIA: \1 -->',
+                respuesta_gemini.text,
+                re.DOTALL
+            )
+
+            # Fallback en caso de que Gemini no use los tags de comentario
+            if not bloques_consultoria:
+                bloques_consultoria = [(cliente_nombre_final, respuesta_gemini.text)]
+
+            for nombre_cliente_match, contenido_bloque in bloques_consultoria:
+                try:
+                    partes = contenido_bloque.split('----DELIMITADOR_PARTE----')
+                    if len(partes) >= 2:
+                        contenido_html = partes[0].strip()
+                        encabezados_eml = partes[1].strip()
+                        resumen_md = partes[2].strip() if len(partes) > 2 else ""
+                    else:
+                        contenido_html = contenido_bloque.strip()
+                        encabezados_eml = f"To: {responsable_final}\nSubject: Confirmación de Consultoría SAP Business One - {nombre_cliente_match} - {fecha_final}"
+                        resumen_md = f"| {nombre_cliente_match} | {fecha_final} | {horas_final} hrs | [Nombre_Archivo].html | [Nombre_Archivo].eml | ✅ Generado |"
+
+                    # Limpiar delimitadores de markdown si Gemini los envolvió
+                    contenido_html = re.sub(r'^```(?:html)?\s*', '', contenido_html, flags=re.IGNORECASE)
+                    contenido_html = re.sub(r'\s*```$', '', contenido_html).strip()
+
+                    # Si el contenido no tiene estructura HTML completa, envolverlo en plantilla básica
+                    if "<table" not in contenido_html and "<html" not in contenido_html:
+                        contenido_html = f"""<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8"><title>Consultoría SAP Business One</title></head>
+<body style="font-family: Arial, sans-serif; background-color: #f4f6f9; padding: 20px;">
+  <div style="max-width: 800px; background: #fff; padding: 25px; border-radius: 6px; border: 1px solid #e0e0e0; margin: auto;">
+    <div style="background-color: #003366; padding: 20px; color: #fff; text-align: center; border-radius: 4px; margin-bottom: 20px;">
+      <h2 style="margin: 0; font-size: 18px;">CONSENSUS S.A.S. - Consultoría Posventa</h2>
+    </div>
+    <div style="line-height: 1.6; color: #333;">{contenido_html.replace(chr(10), '<br>')}</div>
+     <div style="margin-top: 25px; border-top: 1px solid #e0e0e0; padding-top: 20px; font-size: 13px; color: #333333; line-height: 1.4;">
+       <p style="margin: 0 0 5px 0;">Cordialmente,</p>
+      <p style="margin: 0; font-weight: bold; color: #003366;">Alexander Acosta Beltrán</p>
+       <p style="margin: 0;">Consultor SAP Business One</p>
+       <p style="margin: 0;">Tel: +57 601 7431624</p>
+       <p style="margin: 0;">Móvil: 3212429494</p>
+       <p style="margin: 5px 0 0 0; font-weight: bold; color: #003366;">CONSENSUS S.A.S.</p>
+    </div>
+  </div>
+</body></html>"""
+
+                    safe_cliente = "".join(c for c in nombre_cliente_match if c.isalnum() or c in " ").strip().replace(" ", "_")
+                    if not safe_cliente:
+                        safe_cliente = "Cliente"
+
+                    safe_fecha = "".join(c for c in fecha_final if c.isalnum() or c in "_-").strip().replace("-", "_")
+                    if not safe_fecha:
+                        safe_fecha = "Fecha"
+
+                    nombre_html = f"Acta_Consultoria_{safe_cliente}_{safe_fecha}.html"
+                    nombre_eml = f"Correo_Consultoria_{safe_cliente}_{safe_fecha}.eml"
+                    contador_archivo = 2
+                    while (DIR_PERIODO / nombre_html).exists() or (DIR_PERIODO / nombre_eml).exists():
+                        nombre_html = f"Acta_Consultoria_{safe_cliente}_{safe_fecha}_{contador_archivo}.html"
+                        nombre_eml = f"Correo_Consultoria_{safe_cliente}_{safe_fecha}_{contador_archivo}.eml"
+                        contador_archivo += 1
+                    if not nombre_html_primero:
+                        nombre_html_primero = nombre_html
+
+                    # Preparar HTML para navegador incrustando Base64 de la imagen de firma
+                    html_para_archivo = contenido_html
+                    if RUTA_IMAGEN_FIRMA.exists():
+                        try:
+                            b64_img = base64.b64encode(RUTA_IMAGEN_FIRMA.read_bytes()).decode('utf-8')
+                            uri_b64 = f"data:image/jpeg;base64,{b64_img}"
+                            if 'cid:imagen_firma' in html_para_archivo:
+                                html_para_archivo = html_para_archivo.replace('cid:imagen_firma', uri_b64)
+                            elif 'CONSENSUS S.A.S.</p>' in html_para_archivo and uri_b64 not in html_para_archivo:
+                                html_para_archivo = html_para_archivo.replace('CONSENSUS S.A.S.</p>', f'CONSENSUS S.A.S.</p><br><img src="{uri_b64}" alt="Consensus S.A.S." style="display: block; max-width: 250px; height: auto; margin-top: 10px;" />', 1)
+                        except Exception as e_b64:
+                            print(f"Advertencia al incrustar Base64 en HTML: {e_b64}")
+
+                    (DIR_PERIODO / nombre_html).write_text(html_para_archivo, encoding="utf-8")
+
+                    # Crear archivo .EML funcional para Outlook en uploads/
+                    msg = EmailMessage()
+                    to_match = re.search(r'To:\s*(.*)', encabezados_eml, re.IGNORECASE)
+                    subj_match = re.search(r'Subject:\s*(.*)', encabezados_eml, re.IGNORECASE)
+
+                    to_addr = to_match.group(1).strip() if to_match and to_match.group(1).strip() else responsable_final
+                    subject = subj_match.group(1).strip() if subj_match and subj_match.group(1).strip() else f"Confirmación de Consultoría SAP Business One - {nombre_cliente_match} - {fecha_final}"
+
+                    msg['To'] = to_addr
+                    msg['Subject'] = subject
+                    msg['From'] = 'Alexander Acosta <aacosta@consensussa.com>'
+                    msg['X-Unsent'] = '1'  # Indica a Outlook abrirlo directamente como borrador editable
+
+                    html_para_eml = contenido_html
+                    if 'cid:imagen_firma' not in html_para_eml and 'CONSENSUS S.A.S.</p>' in html_para_eml:
+                        html_para_eml = html_para_eml.replace('CONSENSUS S.A.S.</p>', 'CONSENSUS S.A.S.</p><br><img src="cid:imagen_firma" alt="Consensus S.A.S." style="display: block; max-width: 250px; height: auto; margin-top: 10px;" />', 1)
+
+                    msg.set_content("Este es un correo en formato HTML. Por favor, utiliza un cliente de correo compatible.")
+                    msg.add_alternative(html_para_eml, subtype='html')
+
+                    # Adjuntar imagen como recurso CID relacionado al HTML para Outlook
+                    if RUTA_IMAGEN_FIRMA.exists():
+                        try:
+                            msg.get_payload()[1].add_related(RUTA_IMAGEN_FIRMA.read_bytes(), 'image', 'jpeg', cid='<imagen_firma>')
+                        except Exception as e_cid:
+                            print(f"Advertencia al adjuntar imagen CID a EML: {e_cid}")
+
+                    with open(DIR_PERIODO / nombre_eml, 'w', encoding='utf-8') as f_eml:
+                        f_eml.write(msg.as_string())
+
+                    if resumen_md:
+                        fila_md = resumen_md.replace('[Nombre_Archivo].html', f'`{nombre_html}`').replace('[Nombre_Archivo].eml', f'`{nombre_eml}`')
+                        resumen_final_md.append(fila_md)
+                    else:
+                        resumen_final_md.append(f"| **{nombre_cliente_match}** | {fecha_final} | {horas_final} hrs | `{nombre_html}` | `{nombre_eml}` | ✅ Generado |")
+
+                except Exception as e_gen:
+                    errores_proceso.append(f"Fallo al generar archivos para '{nombre_cliente_match}': {str(e_gen)}")
+
+            if errores_proceso:
+                resumen_final_md.append("\n---\n### ⚠️ Errores\n" + "\n".join(f"- {e}" for e in errores_proceso))
+
+            resumen_final_md.append("\n---")
+            resumen_final_md.append(f"> 💡 **Archivos listos:** Se han generado los archivos **.HTML** y **.EML** en `{DIR_PERIODO}`. Puedes hacer doble clic en el archivo `.eml` para abrirlo directamente en Microsoft Outlook como borrador listo para enviar.")
+
+            return JSONResponse(content={
+                "success": True,
+                "mensaje": f"Acta de consultoría exportada con éxito en .HTML y .EML en uploads/{DIR_PERIODO.name}/",
+                "ruta_exportacion": f"uploads/{DIR_PERIODO.name}/",
+                "acta_borrador": "\n".join(resumen_final_md)
+            })
+
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"success": False, "error": f"Error interno: {str(exc)}"})
+
+
+if __name__ == "__main__":
+    import uvicorn
+    import webbrowser, threading
+    # Cuando está frozen (exe), usar el objeto app directamente (el string "main:app" no funciona)
+    # use_colors=False evita errores de stdout en modo ventana silenciosa
+    def abrir_navegador():
+        import time
+        time.sleep(1.5)
+        webbrowser.open("http://127.0.0.1:8000")
+    threading.Thread(target=abrir_navegador, daemon=True).start()
+    uvicorn.run(app, host="127.0.0.1", port=8000, reload=False)

@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generador de Actas - Consensus</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+    <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+</head>
+
+<body class="bg-gray-50 text-gray-800 font-sans min-h-screen">
+    <div class="max-w-7xl mx-auto py-8 px-4">
+        <header class="mb-6 border-b pb-4 border-gray-200 flex justify-between items-center">
+            <div>
+                <h1 class="text-3xl font-extrabold text-blue-900">✨ Generador Inteligente de Actas</h1>
+                <p class="text-gray-600 mt-1">Transforma notas, audios o registros en actas estandarizadas de
+                    consultoría e implementación.</p>
+            </div>
+            <div class="text-right text-xs text-gray-400">
+                Consensus S.A.S. | SAP Partner Gold
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <!-- Formulario Izquierdo -->
+            <div class="bg-white p-6 rounded-xl shadow-md border border-gray-100 space-y-5">
+                <form id="formActa" enctype="multipart/form-data" class="space-y-4">
+                    <div>
+                        <h2 class="text-base font-bold text-gray-700 mb-2">1. Tipo de Proceso</h2>
+                        <select id="tipo_proceso" name="tipo_proceso"
+                            class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                            <option value="consultoria">Consultoría (Posventa)</option>
+                            <option value="implementacion">Acta de Implementación (Excel)</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <h2 class="text-base font-bold text-gray-700 mb-2">2. Información del Cliente</h2>
+                        <div class="space-y-3">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label for="nombre_cliente"
+                                        class="block text-xs font-bold text-gray-600 mb-1">
+                                        Nombre del Cliente <span id="req-cliente" class="text-red-500">*</span>
+                                    </label>
+                                    <input type="text" id="nombre_cliente" name="nombre_cliente"
+                                        placeholder="Ej: Industrias Acme S.A."
+                                        class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                                </div>
+                                <div>
+                                    <label for="responsable_cliente"
+                                        class="block text-xs font-bold text-gray-600 mb-1">Responsable (Cliente)</label>
+                                    <input type="text" id="responsable_cliente" name="responsable_cliente"
+                                        placeholder="Ej: Ana Pérez"
+                                        class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                                </div>
+                            </div>
+                            <p id="nota-cliente-excel" class="text-[11px] text-blue-700 font-medium hidden">
+                                ℹ️ En <b>Actas de Implementación</b>, el nombre del cliente y responsable se obtienen automáticamente del archivo Excel.
+                            </p>
+                            <!-- Bloque para Acta de Implementación: Mes y Año obligatorios -->
+                            <div id="bloque-periodo-implementacion" class="p-3 bg-blue-50/70 border border-blue-200 rounded-lg space-y-2">
+                                <label class="block text-xs font-bold text-blue-900">
+                                    📅 Período de Ejecución a Procesar (Filtro Estricto)
+                                </label>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div>
+                                        <label for="mes_ejecucion" class="block text-[11px] font-bold text-gray-700 mb-1">Mes</label>
+                                        <select id="mes_ejecucion" name="mes_ejecucion"
+                                            class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 bg-white font-medium">
+                                            <option value="Enero">Enero</option>
+                                            <option value="Febrero">Febrero</option>
+                                            <option value="Marzo">Marzo</option>
+                                            <option value="Abril">Abril</option>
+                                            <option value="Mayo">Mayo</option>
+                                            <option value="Junio">Junio</option>
+                                            <option value="Julio">Julio</option>
+                                            <option value="Agosto">Agosto</option>
+                                            <option value="Septiembre">Septiembre</option>
+                                            <option value="Octubre">Octubre</option>
+                                            <option value="Noviembre">Noviembre</option>
+                                            <option value="Diciembre">Diciembre</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label for="anio_ejecucion" class="block text-[11px] font-bold text-gray-700 mb-1">Año</label>
+                                        <input type="number" id="anio_ejecucion" name="anio_ejecucion" min="2020" max="2035"
+                                            class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 bg-white font-medium"
+                                            placeholder="2026">
+                                    </div>
+                                </div>
+                                <p class="text-[11px] text-amber-800 font-medium">
+                                    ⚠️ Solo se procesarán actividades de este mes y año. Se descartarán automáticamente fechas anteriores o a futuro.
+                                </p>
+                            </div>
+
+                            <!-- Bloque para Consultoría: Fecha y Horas -->
+                            <div id="bloque-periodo-consultoria" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label for="fecha_ejecucion"
+                                        class="block text-xs font-bold text-gray-600 mb-1">Fecha de la Sesión</label>
+                                    <input type="date" id="fecha_ejecucion" name="fecha_ejecucion"
+                                        class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                                </div>
+                                <div>
+                                    <label for="horas_ejecutadas"
+                                        class="block text-xs font-bold text-gray-600 mb-1">Cantidad de Horas</label>
+                                    <input type="number" step="0.5" id="horas_ejecutadas" name="horas_ejecutadas"
+                                        placeholder="Ej: 4.5"
+                                        class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr class="border-gray-100">
+                    <div>
+                        <h2 class="text-base font-bold text-gray-700 mb-2">3. Insumos para el Acta</h2>
+                        <div id="bloque-audio" class="mb-3">
+                            <label class="block text-xs font-bold text-gray-700 mb-1">🎙️ Grabar Audio de la
+                                Sesión</label>
+                            <div class="flex items-center space-x-3">
+                                <button type="button" id="btnGrabar"
+                                    class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg shadow transition text-sm flex items-center gap-2">
+                                    <span id="dotGrabar" class="w-2.5 h-2.5 rounded-full bg-white"></span> Iniciar
+                                </button>
+                                <button type="button" id="btnDetener"
+                                    class="px-4 py-2 bg-gray-300 text-gray-500 font-semibold rounded-lg cursor-not-allowed text-sm"
+                                    disabled>
+                                    Detener
+                                </button>
+                            </div>
+                            <p id="estadoGrabacion" class="text-xs text-gray-500 mt-2 font-medium">Micrófono listo.</p>
+                            <audio id="audioPlayback" class="w-full mt-3 hidden" controls></audio>
+                            <button type="button" id="btnDescargarAudio"
+                                class="mt-2 px-3 py-2 bg-green-700 hover:bg-green-800 text-white font-semibold rounded-lg text-xs hidden">
+                                ⬇️ Descargar audio para conservarlo
+                            </button>
+                            <div class="mt-3">
+                                <label for="audioExistente" class="block text-xs font-bold text-gray-700 mb-1">O carga un audio guardado para reprocesarlo</label>
+                                <input type="file" id="audioExistente" accept="audio/*,.webm,.wav,.mp3,.m4a,.ogg,.mp4"
+                                    class="block w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="block text-xs font-bold text-gray-700 mb-1">📁 Archivos de Respaldo (.xlsx,
+                                .pdf, .docx, .txt, .csv)</label>
+                            <input type="file" id="archivos" name="archivos" multiple
+                                accept=".xlsx,.xls,.pdf,.docx,.doc,.txt,.csv"
+                                class="block w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-700 mb-1">✍️ Notas o Instrucciones
+                                Extras</label>
+                            <textarea id="informacion_extra" name="informacion_extra" rows="3"
+                                placeholder="Ingresa notas o indicaciones especiales..."
+                                class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"></textarea>
+                        </div>
+                    </div>
+
+                    <button type="submit" id="btnSubmit"
+                        class="w-full py-3 bg-blue-900 hover:bg-blue-800 text-white font-bold rounded-lg shadow-lg transition">
+                        ⚡ Elaborar Acta con Gemini Enterprise
+                    </button>
+                </form>
+            </div>
+
+            <!-- Editor y Vista Previa -->
+            <div class="bg-white p-6 rounded-xl shadow-md border border-gray-100 flex flex-col">
+                <div class="flex flex-wrap justify-between items-center mb-3 gap-2">
+                    <div>
+                        <h2 class="text-base font-bold text-gray-700">📄 Resumen de Generación y Archivos</h2>
+                        <div class="flex items-center gap-1.5 text-xs text-gray-500 mt-0.5">
+                            <span class="font-medium text-gray-600">📁 Ruta de exportación:</span>
+                            <span id="badgeRutaExportacion" class="font-mono bg-blue-50 text-blue-800 border border-blue-200 px-2 py-0.5 rounded font-semibold text-[11px]">uploads/</span>
+                        </div>
+                    </div>
+
+                </div>
+                <div id="editor-container"
+                    class="flex-grow rounded-lg border border-gray-200 text-sm min-h-[480px] bg-white"></div>
+                <div id="estado-proceso" class="mt-3 text-center text-xs text-gray-600"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const quill = new Quill('#editor-container', {
+            theme: 'snow',
+            placeholder: 'El resumen de los archivos exportados (.HTML y .EML) aparecerá aquí...',
+            modules: { toolbar: [[{ 'header': [1, 2, 3, false] }], ['bold', 'italic', 'underline'], [{ 'list': 'ordered' }, { 'list': 'bullet' }], ['clean']] }
+        });
+
+        // Configuración de marked para respetar saltos de línea y formateo GFM
+        if (typeof marked !== 'undefined') {
+            marked.setOptions({
+                breaks: true,
+                gfm: true
+            });
+        }
+
+        const hoy = new Date();
+        const mesesNombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+        document.getElementById('fecha_ejecucion').valueAsDate = hoy;
+        const selectMes = document.getElementById('mes_ejecucion');
+        const inputAnio = document.getElementById('anio_ejecucion');
+        if (selectMes) selectMes.value = mesesNombres[hoy.getMonth()];
+        if (inputAnio) inputAnio.value = hoy.getFullYear();
+
+        const tipoProcesoSelect = document.getElementById('tipo_proceso');
+        const bloqueAudio = document.getElementById('bloque-audio');
+        const bloquePeriodoImpl = document.getElementById('bloque-periodo-implementacion');
+        const bloquePeriodoCons = document.getElementById('bloque-periodo-consultoria');
+        const badgeRuta = document.getElementById('badgeRutaExportacion');
+
+        function actualizarModoProceso() {
+            const inputCliente = document.getElementById('nombre_cliente');
+            const reqCliente = document.getElementById('req-cliente');
+            const notaCliente = document.getElementById('nota-cliente-excel');
+
+            if (tipoProcesoSelect.value === 'implementacion') {
+                bloqueAudio.classList.add('hidden');
+                if (bloquePeriodoImpl) bloquePeriodoImpl.classList.remove('hidden');
+                if (bloquePeriodoCons) bloquePeriodoCons.classList.add('hidden');
+                if (badgeRuta) badgeRuta.textContent = 'uploads/ (Acta de Implementación)';
+                if (inputCliente) {
+                    inputCliente.required = false;
+                    inputCliente.placeholder = "Opcional (se extrae del Excel)";
+                }
+                if (reqCliente) reqCliente.classList.add('hidden');
+                if (notaCliente) notaCliente.classList.remove('hidden');
+            } else {
+                bloqueAudio.classList.remove('hidden');
+                if (bloquePeriodoImpl) bloquePeriodoImpl.classList.add('hidden');
+                if (bloquePeriodoCons) bloquePeriodoCons.classList.remove('hidden');
+                if (badgeRuta) badgeRuta.textContent = 'uploads/ (Acta de Consultoría)';
+                if (inputCliente) {
+                    inputCliente.required = true;
+                    inputCliente.placeholder = "Ej: Industrias Acme S.A.";
+                }
+                if (reqCliente) reqCliente.classList.remove('hidden');
+                if (notaCliente) notaCliente.classList.add('hidden');
+            }
+        }
+        tipoProcesoSelect.addEventListener('change', actualizarModoProceso);
+        actualizarModoProceso();
+
+        function restablecerFormulario() {
+            const formActa = document.getElementById('formActa');
+            const audioActual = audioBlob || audioExistente.files?.[0];
+            if (audioActual) {
+                audioRetenidoBlob = audioActual;
+                if (audioBlob) {
+                    if (!nombreAudioRetenido) {
+                        nombreAudioRetenido = `Grabacion_Consultoria_${new Date().toISOString().replace(/[:.]/g, '-')}.webm`;
+                    }
+                } else {
+                    nombreAudioRetenido = audioActual.name || 'Audio_Consultoria';
+                }
+            }
+            formActa.reset();
+
+            // Mantiene los valores iniciales de fecha y período después de limpiar el formulario.
+            const fechaActual = new Date();
+            document.getElementById('fecha_ejecucion').valueAsDate = fechaActual;
+            selectMes.value = mesesNombres[fechaActual.getMonth()];
+            inputAnio.value = fechaActual.getFullYear();
+
+            // Descarta la grabación anterior y libera el micrófono si seguía activo.
+            audioBlob = null;
+            audioChunks = [];
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.onstop = null;
+                mediaRecorder.stop();
+            }
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+            clearInterval(intervaloTimer);
+            contadorSegundos = 0;
+            btnGrabar.disabled = false;
+            btnGrabar.classList.remove('opacity-50');
+            dotGrabar.classList.remove('animate-ping');
+            btnDetener.disabled = true;
+            btnDetener.classList.add('bg-gray-300', 'text-gray-500', 'cursor-not-allowed');
+            btnDetener.classList.remove('bg-gray-900', 'text-white');
+            estadoGrabacion.textContent = 'Micrófono listo.';
+            audioExistente.disabled = false;
+            if (audioRetenidoBlob) {
+                actualizarVistaAudio(audioRetenidoBlob);
+                estadoGrabacion.textContent = rutaAudioGuardado
+                    ? `Audio guardado en ${rutaAudioGuardado}. También puedes descargarlo.`
+                    : 'Audio disponible para descargar. Descárgalo para conservarlo y poder reprocesarlo después.';
+            } else {
+                limpiarVistaAudio();
+            }
+
+            actualizarModoProceso();
+        }
+
+        let mediaRecorder, audioChunks = [], audioBlob = null, stream = null, contadorSegundos = 0, intervaloTimer = null;
+        let audioRetenidoBlob = null, nombreAudioRetenido = '', audioObjectUrl = null;
+        let rutaAudioGuardado = '', promesaGuardadoAudio = null;
+        const btnGrabar = document.getElementById('btnGrabar'), btnDetener = document.getElementById('btnDetener'), estadoGrabacion = document.getElementById('estadoGrabacion'), audioPlayback = document.getElementById('audioPlayback'), dotGrabar = document.getElementById('dotGrabar');
+        const btnDescargarAudio = document.getElementById('btnDescargarAudio');
+        const audioExistente = document.getElementById('audioExistente');
+
+        function limpiarVistaAudio() {
+            if (audioObjectUrl) URL.revokeObjectURL(audioObjectUrl);
+            audioObjectUrl = null;
+            audioPlayback.pause();
+            audioPlayback.removeAttribute('src');
+            audioPlayback.load();
+            audioPlayback.classList.add('hidden');
+            btnDescargarAudio.classList.add('hidden');
+        }
+
+        function actualizarVistaAudio(blob) {
+            if (audioObjectUrl) URL.revokeObjectURL(audioObjectUrl);
+            audioObjectUrl = URL.createObjectURL(blob);
+            audioPlayback.src = audioObjectUrl;
+            audioPlayback.classList.remove('hidden');
+            btnDescargarAudio.classList.remove('hidden');
+        }
+
+        btnDescargarAudio.addEventListener('click', () => {
+            if (!audioRetenidoBlob) return;
+            const enlace = document.createElement('a');
+            const urlDescarga = URL.createObjectURL(audioRetenidoBlob);
+            enlace.href = urlDescarga;
+            enlace.download = nombreAudioRetenido || 'Audio_Consultoria.webm';
+            document.body.appendChild(enlace);
+            enlace.click();
+            enlace.remove();
+            setTimeout(() => URL.revokeObjectURL(urlDescarga), 1000);
+        });
+
+        audioExistente.addEventListener('change', () => {
+            const archivoAudio = audioExistente.files?.[0];
+            if (!archivoAudio) return;
+            audioBlob = null;
+            audioRetenidoBlob = archivoAudio;
+            nombreAudioRetenido = archivoAudio.name;
+            rutaAudioGuardado = '';
+            actualizarVistaAudio(archivoAudio);
+            estadoGrabacion.textContent = 'Audio cargado; se adjuntará al reprocesar el acta.';
+        });
+
+        async function guardarAudioEnServidor(blob) {
+            const datosAudio = new FormData();
+            datosAudio.append('audio', blob, nombreAudioRetenido || 'Grabacion_Consultoria.webm');
+            datosAudio.append('nombre_cliente', document.getElementById('nombre_cliente').value.trim() || 'Cliente');
+            datosAudio.append('fecha_ejecucion', document.getElementById('fecha_ejecucion').value || '');
+            estadoGrabacion.textContent = 'Guardando una copia en uploads...';
+
+            try {
+                const response = await fetch('/guardar-audio/', { method: 'POST', body: datosAudio });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok || !data.success) {
+                    const detalle = data.error || data.detail || `El servidor respondió HTTP ${response.status}.`;
+                    throw new Error(detalle);
+                }
+                rutaAudioGuardado = data.ruta;
+                if (audioRetenidoBlob === blob) {
+                    estadoGrabacion.textContent = `Audio guardado en ${data.ruta}. También puedes descargarlo.`;
+                }
+            } catch (err) {
+                rutaAudioGuardado = '';
+                if (audioRetenidoBlob === blob) {
+                    estadoGrabacion.textContent = `No se pudo guardar en uploads: ${err.message}. Descárgalo para conservarlo.`;
+                }
+            }
+        }
+
+        btnGrabar.addEventListener('click', async () => {
+            try {
+                audioChunks = [];
+                stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                audioRetenidoBlob = null;
+                nombreAudioRetenido = '';
+                rutaAudioGuardado = '';
+                promesaGuardadoAudio = null;
+                audioBlob = null;
+                limpiarVistaAudio();
+                audioExistente.value = '';
+                audioExistente.disabled = true;
+                mediaRecorder = new MediaRecorder(stream);
+                mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+                mediaRecorder.onstop = () => {
+                    audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    audioRetenidoBlob = audioBlob;
+                    nombreAudioRetenido = `Grabacion_Consultoria_${new Date().toISOString().replace(/[:.]/g, '-')}.webm`;
+                    actualizarVistaAudio(audioBlob);
+                    audioExistente.disabled = false;
+                    estadoGrabacion.textContent = `✅ Grabación lista (${contadorSegundos} seg). Descárgala para conservarla.`;
+                    clearInterval(intervaloTimer);
+                    promesaGuardadoAudio = guardarAudioEnServidor(audioBlob);
+                };
+                mediaRecorder.start();
+                btnGrabar.disabled = true; btnGrabar.classList.add('opacity-50'); dotGrabar.classList.add('animate-ping');
+                btnDetener.disabled = false; btnDetener.classList.remove('bg-gray-300', 'text-gray-500', 'cursor-not-allowed'); btnDetener.classList.add('bg-gray-900', 'text-white');
+                contadorSegundos = 0; estadoGrabacion.textContent = "🔴 Grabando voz... 0s";
+                intervaloTimer = setInterval(() => { contadorSegundos++; estadoGrabacion.textContent = `🔴 Grabando voz... ${contadorSegundos}s`; }, 1000);
+            } catch (err) {
+                estadoGrabacion.textContent = "❌ Error con micrófono.";
+            }
+        });
+
+        btnDetener.addEventListener('click', () => {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                if (stream) stream.getTracks().forEach(t => t.stop());
+                audioExistente.disabled = false;
+                btnGrabar.disabled = false; btnGrabar.classList.remove('opacity-50'); dotGrabar.classList.remove('animate-ping');
+                btnDetener.disabled = true; btnDetener.classList.add('bg-gray-300', 'text-gray-500', 'cursor-not-allowed'); btnDetener.classList.remove('bg-gray-900', 'text-white');
+            }
+        });
+
+        document.getElementById('formActa').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const estadoDiv = document.getElementById('estado-proceso');
+            const btnSubmit = document.getElementById('btnSubmit');
+            const formData = new FormData(e.target);
+
+            if (audioBlob && tipoProcesoSelect.value === 'consultoria') {
+                formData.append('audio', audioBlob, nombreAudioRetenido || 'audio_sesion.webm');
+            } else if (audioExistente.files?.[0] && tipoProcesoSelect.value === 'consultoria') {
+                formData.append('audio', audioExistente.files[0], audioExistente.files[0].name);
+            }
+
+            const textoOriginal = btnSubmit.innerHTML;
+            quill.setText('');
+            if (badgeRuta) {
+                badgeRuta.textContent = tipoProcesoSelect.value === 'implementacion'
+                    ? 'uploads/ (Acta de Implementación)'
+                    : 'uploads/ (Acta de Consultoría)';
+            }
+            btnSubmit.disabled = true;
+            btnSubmit.innerHTML = "⏳ Procesando con Gemini Enterprise...";
+            estadoDiv.innerHTML = `<span class="text-blue-700 font-bold animate-pulse">⏳ Nueva generación en curso: analizando insumos y redactando documento...</span>`;
+
+            try {
+                if (promesaGuardadoAudio) await promesaGuardadoAudio;
+                const response = await fetch('/procesar-acta/', { method: 'POST', body: formData });
+                const data = await response.json();
+                if (data.success) {
+                    let contenidoMarkdown = (data.acta_borrador || "").trim();
+                    // Limpiar delimitadores markdown envolventes si Gemini los incluyó
+                    contenidoMarkdown = contenidoMarkdown.replace(/^```(?:markdown|html)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+
+                    const htmlParsed = marked.parse(contenidoMarkdown);
+                    quill.root.innerHTML = htmlParsed;
+
+                    estadoDiv.innerHTML = `
+                        <div class="p-2.5 bg-green-50 border border-green-200 rounded-lg text-green-800 text-xs text-left">
+                            <p class="font-bold text-green-900">✅ ${data.mensaje}</p>
+                            <p class="text-gray-600 mt-1">📁 Carpeta de exportación de archivos: <b class="font-mono text-blue-700">${data.ruta_exportacion || 'uploads/'}</b></p>
+                        </div>
+                    `;
+                    restablecerFormulario();
+                    if (data.ruta_exportacion && badgeRuta) {
+                        badgeRuta.textContent = data.ruta_exportacion;
+                    }
+                } else {
+                    quill.setText(`Error: ${data.error}`);
+                    estadoDiv.innerHTML = `<span class="text-red-600 font-bold">❌ Error: ${data.error}</span>`;
+                }
+            } catch (err) {
+                estadoDiv.innerHTML = `<span class="text-red-600 font-bold">❌ Fallo de conexión: ${err.message}</span>`;
+            } finally {
+                btnSubmit.disabled = false;
+                btnSubmit.innerHTML = textoOriginal;
+            }
+        });
+
+
+    </script>
+</body>
+
+</html>

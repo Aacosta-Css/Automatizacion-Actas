@@ -1,0 +1,18 @@
+# Entorno y variables sensibles
+.env
+.env.local
+
+# Archivos temporales de audio y texto subidos
+uploads/
+*.webm
+*.mp4
+*.ogg
+
+# Python y caché
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+venv/
+.venv/
