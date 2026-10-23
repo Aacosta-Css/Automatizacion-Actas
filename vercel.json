@@ -3,7 +3,13 @@
     "builds": [
         {
             "src": "main.py",
-            "use": "@vercel/python"
+            "use": "@vercel/python",
+            "config": {
+                "includeFiles": [
+                    "templates/**"
+                ],
+                "maxDuration": 60
+            }
         }
     ],
     "routes": [
