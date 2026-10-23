@@ -3,7 +3,8 @@
 .env.local
 
 # Archivos temporales de audio y texto subidos
-uploads/
+uploads/*
+!uploads/.gitkeep
 *.webm
 *.mp4
 *.ogg

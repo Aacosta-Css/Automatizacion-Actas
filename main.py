@@ -15,13 +15,15 @@ from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 
 from fastapi import FastAPI, Request, File, UploadFile, Form
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, Response
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import pandas as pd
 from google import genai
 from google.genai import types
+import tempfile
+import zipfile
 
 # --- 1. CONFIGURACIÓN INICIAL ---
 import sys
@@ -38,9 +40,22 @@ else:
 load_dotenv(dotenv_path=BASE_DIR / ".env")
 
 TEMPLATES_DIR = BASE_DIR / "templates"
-UPLOADS_DIR = BASE_DIR / "uploads"
-UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
+
+def obtener_directorio_uploads() -> Path:
+    candidato = BASE_DIR / "uploads"
+    try:
+        candidato.mkdir(parents=True, exist_ok=True)
+        prueba = candidato / ".permiso_test"
+        prueba.touch()
+        prueba.unlink()
+        return candidato
+    except (OSError, PermissionError):
+        # En entornos serverless de solo lectura (como Vercel/AWS Lambda)
+        dir_temp = Path(tempfile.gettempdir()) / "consensus_uploads"
+        dir_temp.mkdir(parents=True, exist_ok=True)
+        return dir_temp
+
+UPLOADS_DIR = obtener_directorio_uploads()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 app = FastAPI(title="Generador de Actas Consensus")
@@ -52,22 +67,34 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-API_KEY_PROYECTO = os.getenv("GEMINI_API_KEY", "")
-try:
-    if API_KEY_PROYECTO:
-        client = genai.Client(api_key=API_KEY_PROYECTO)
-        print("✅ Cliente Gemini inicializado con éxito.")
+client = None
+
+def obtener_cliente_gemini():
+    global client
+    if client is not None:
+        return client
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if api_key:
+        try:
+            client = genai.Client(api_key=api_key)
+            print("✅ Cliente Gemini inicializado con éxito.")
+            return client
+        except Exception as err:
+            print(f"⚠️ Error al inicializar cliente Gemini: {err}")
     else:
         print("⚠️ Advertencia: GEMINI_API_KEY no encontrada.")
-        client = None
-except Exception as err:
-    print(f"⚠️ Error al inicializar cliente Gemini: {err}")
-    client = None
+    return None
+
+# Inicialización temprana si la variable ya existe
+obtener_cliente_gemini()
 
 RUTA_IMAGEN_FIRMA = TEMPLATES_DIR / "Imagen1.jpg"
 AUDIO_UPLOADS_DIR = UPLOADS_DIR / "Audios_Consultoria"
 AUDIO_EXTENSIONS = {".webm", ".wav", ".mp3", ".m4a", ".ogg", ".mp4"}
-AUDIO_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+try:
+    AUDIO_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
 
 
 def nombre_archivo_seguro(texto, valor_default):
@@ -183,7 +210,7 @@ def llamar_gemini_con_fallback(client_gemini, contents, modelos_prioridad=None):
     # pyrefly: ignore[bad-raise]
     raise ultimo_error
     
-# --- 2. RUTA PRINCIPAL (Sin cambios) ---
+# --- 2. RUTAS Y DESCARGAS ---
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     try:
@@ -193,6 +220,68 @@ async def read_root(request: Request):
         if ruta_raiz_html.exists():
             return HTMLResponse(content=ruta_raiz_html.read_text(encoding="utf-8"))
         return HTMLResponse(content=f"Error: No se encuentra {ruta_raiz_html}", status_code=500)
+
+
+@app.get("/descargar/{carpeta}/{nombre_archivo}")
+async def descargar_archivo(carpeta: str, nombre_archivo: str):
+    safe_carpeta = Path(carpeta).name
+    safe_archivo = Path(nombre_archivo).name
+    ruta_archivo = UPLOADS_DIR / safe_carpeta / safe_archivo
+    if not ruta_archivo.exists() or not ruta_archivo.is_file():
+        return JSONResponse(status_code=404, content={"success": False, "error": "Archivo no encontrado."})
+
+    media_type = "application/octet-stream"
+    if safe_archivo.endswith(".html"):
+        media_type = "text/html; charset=utf-8"
+    elif safe_archivo.endswith(".eml"):
+        media_type = "message/rfc822"
+    elif safe_archivo.endswith(".webm"):
+        media_type = "audio/webm"
+
+    return FileResponse(
+        path=str(ruta_archivo),
+        filename=safe_archivo,
+        media_type=media_type
+    )
+
+
+@app.get("/ver/{carpeta}/{nombre_archivo}", response_class=HTMLResponse)
+async def ver_archivo_html(carpeta: str, nombre_archivo: str):
+    safe_carpeta = Path(carpeta).name
+    safe_archivo = Path(nombre_archivo).name
+    ruta_archivo = UPLOADS_DIR / safe_carpeta / safe_archivo
+    if not ruta_archivo.exists() or not ruta_archivo.is_file():
+        return HTMLResponse(content="<h3>Archivo no encontrado</h3>", status_code=404)
+    return HTMLResponse(content=ruta_archivo.read_text(encoding="utf-8"))
+
+
+@app.get("/descargar-zip/{carpeta}")
+async def descargar_zip_periodo(carpeta: str):
+    safe_carpeta = Path(carpeta).name
+    dir_carpeta = UPLOADS_DIR / safe_carpeta
+    if not dir_carpeta.exists() or not dir_carpeta.is_dir():
+        return JSONResponse(status_code=404, content={"success": False, "error": "Carpeta no encontrada."})
+
+    zip_buffer = io.BytesIO()
+    archivos_agregados = 0
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        for root, _, files in os.walk(dir_carpeta):
+            for file in files:
+                file_path = Path(root) / file
+                arcname = file_path.relative_to(dir_carpeta)
+                zip_file.write(file_path, arcname=str(arcname))
+                archivos_agregados += 1
+
+    if archivos_agregados == 0:
+        return JSONResponse(status_code=404, content={"success": False, "error": "No hay archivos para comprimir."})
+
+    zip_buffer.seek(0)
+    return Response(
+        content=zip_buffer.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="Actas_{safe_carpeta}.zip"'}
+    )
+
 
 # =======================================================================
 # 3. ENDPOINT DE PROCESAMIENTO -> AJUSTES APLICADOS EN ESTA SECCIÓN
@@ -210,8 +299,9 @@ async def procesar_acta(
     mes_ejecucion: Optional[str] = Form(default=""),
     anio_ejecucion: Optional[str] = Form(default="")
 ):
-    if not client:
-        return JSONResponse(status_code=500, content={"success": False, "error": "Cliente Gemini no configurado."})
+    cliente_gemini = obtener_cliente_gemini()
+    if not cliente_gemini:
+        return JSONResponse(status_code=500, content={"success": False, "error": "Cliente Gemini no configurado. Asegúrate de configurar GEMINI_API_KEY en las variables de entorno o archivo .env."})
 
     try:
         if tipo_proceso == "implementacion":
@@ -336,7 +426,7 @@ async def procesar_acta(
                 El HTML completo de cada primer bloque se usará como cuerpo del EML de ese cliente. Genera el EML con los encabezados To y Subject del segundo bloque, y el HTML como cuerpo. No adjuntes el archivo HTML. Marca el EML como no enviado para que pueda revisarse antes de enviarlo. Escribe los archivos en uploads/ usando nombres seguros basados en el nombre del cliente y el período. Genera también el resumen final a partir de las líneas Markdown del tercer bloque.
             """
 
-            respuesta_gemini = llamar_gemini_con_fallback(client, contents=[prompt_implementacion])
+            respuesta_gemini = llamar_gemini_con_fallback(cliente_gemini, contents=[prompt_implementacion])
 
             # Crear subcarpeta por período: uploads/Mes_Año/
             nombre_carpeta_periodo = f"{mes_limpio}_{anio_limpio}"
@@ -350,6 +440,7 @@ async def procesar_acta(
             ]
             errores_proceso = []
             clientes_procesados = 0
+            archivos_generados = []
 
             bloques_cliente = re.findall(r'<!-- INICIO_CLIENTE: (.*?) -->(.*?)<!-- FIN_CLIENTE: \1 -->', respuesta_gemini.text, re.DOTALL)
 
@@ -407,7 +498,19 @@ async def procesar_acta(
                     with open(DIR_PERIODO / nombre_eml, 'w', encoding='utf-8') as f_eml:
                         f_eml.write(msg.as_string())
 
-                    resumen_final_md.append(resumen_md.replace('[Nombre_Archivo].html', f'`{nombre_html}`').replace('[Nombre_Archivo].eml', f'`{nombre_eml}`'))
+                    archivos_generados.append({
+                        "cliente": nombre_cliente_match,
+                        "nombre_html": nombre_html,
+                        "url_ver_html": f"/ver/{DIR_PERIODO.name}/{nombre_html}",
+                        "url_descarga_html": f"/descargar/{DIR_PERIODO.name}/{nombre_html}",
+                        "nombre_eml": nombre_eml,
+                        "url_descarga_eml": f"/descargar/{DIR_PERIODO.name}/{nombre_eml}"
+                    })
+
+                    link_html = f"[`{nombre_html}`](/descargar/{DIR_PERIODO.name}/{nombre_html})"
+                    link_eml = f"[`{nombre_eml}`](/descargar/{DIR_PERIODO.name}/{nombre_eml})"
+                    resumen_modificado = resumen_md.replace('[Nombre_Archivo].html', link_html).replace('[Nombre_Archivo].eml', link_eml)
+                    resumen_final_md.append(resumen_modificado)
                 
                 except Exception as e_gen:
                     errores_proceso.append(f"Fallo al generar archivos para '{nombre_cliente_match}': {str(e_gen)}")
@@ -417,7 +520,18 @@ async def procesar_acta(
             if not bloques_cliente:
                 resumen_final_md.append("| *No se generaron archivos. Revisa el Excel o la respuesta de la IA.* | | | |")
 
-            return JSONResponse(content={ "success": True, "mensaje": f"Proceso finalizado. Archivos guardados en: uploads/{nombre_carpeta_periodo}/", "ruta_exportacion": f"uploads/{nombre_carpeta_periodo}/", "acta_borrador": "\n".join(resumen_final_md) })
+            if archivos_generados:
+                resumen_final_md.append("\n---")
+                resumen_final_md.append(f"> 📦 **Descarga rápida:** [Descargar todas las actas y correos en un archivo .ZIP](/descargar-zip/{nombre_carpeta_periodo})\n")
+
+            return JSONResponse(content={
+                "success": True,
+                "mensaje": f"Proceso finalizado. {len(archivos_generados)} reporte(s) generado(s).",
+                "ruta_exportacion": f"uploads/{nombre_carpeta_periodo}/",
+                "url_zip": f"/descargar-zip/{nombre_carpeta_periodo}" if archivos_generados else None,
+                "archivos_generados": archivos_generados,
+                "acta_borrador": "\n".join(resumen_final_md)
+            })
         
         # --- Flujo de Consultoría Posventa ---
         else:
@@ -583,7 +697,7 @@ Subject: Confirmación de Consultoría SAP Business One - {cliente_nombre_final}
 <!-- FIN_CONSULTORIA: {cliente_nombre_final} -->
 """
             partes_insumos.append(prompt_consultoria)
-            respuesta_gemini = llamar_gemini_con_fallback(client, contents=partes_insumos)
+            respuesta_gemini = llamar_gemini_con_fallback(cliente_gemini, contents=partes_insumos)
 
             fecha_periodo_consultoria = pd.to_datetime(fecha_final, dayfirst=True, errors="coerce")
             if pd.notna(fecha_periodo_consultoria):
@@ -603,6 +717,7 @@ Subject: Confirmación de Consultoría SAP Business One - {cliente_nombre_final}
                 "| :--- | :--- | :--- | :--- | :--- | :--- |"
             ]
             errores_proceso = []
+            archivos_generados = []
             nombre_html_primero = ""
 
             bloques_consultoria = re.findall(
@@ -715,11 +830,22 @@ Subject: Confirmación de Consultoría SAP Business One - {cliente_nombre_final}
                     with open(DIR_PERIODO / nombre_eml, 'w', encoding='utf-8') as f_eml:
                         f_eml.write(msg.as_string())
 
+                    archivos_generados.append({
+                        "cliente": nombre_cliente_match,
+                        "nombre_html": nombre_html,
+                        "url_ver_html": f"/ver/{DIR_PERIODO.name}/{nombre_html}",
+                        "url_descarga_html": f"/descargar/{DIR_PERIODO.name}/{nombre_html}",
+                        "nombre_eml": nombre_eml,
+                        "url_descarga_eml": f"/descargar/{DIR_PERIODO.name}/{nombre_eml}"
+                    })
+
+                    link_html = f"[`{nombre_html}`](/descargar/{DIR_PERIODO.name}/{nombre_html})"
+                    link_eml = f"[`{nombre_eml}`](/descargar/{DIR_PERIODO.name}/{nombre_eml})"
                     if resumen_md:
-                        fila_md = resumen_md.replace('[Nombre_Archivo].html', f'`{nombre_html}`').replace('[Nombre_Archivo].eml', f'`{nombre_eml}`')
+                        fila_md = resumen_md.replace('[Nombre_Archivo].html', link_html).replace('[Nombre_Archivo].eml', link_eml)
                         resumen_final_md.append(fila_md)
                     else:
-                        resumen_final_md.append(f"| **{nombre_cliente_match}** | {fecha_final} | {horas_final} hrs | `{nombre_html}` | `{nombre_eml}` | ✅ Generado |")
+                        resumen_final_md.append(f"| **{nombre_cliente_match}** | {fecha_final} | {horas_final} hrs | {link_html} | {link_eml} | ✅ Generado |")
 
                 except Exception as e_gen:
                     errores_proceso.append(f"Fallo al generar archivos para '{nombre_cliente_match}': {str(e_gen)}")
@@ -727,13 +853,17 @@ Subject: Confirmación de Consultoría SAP Business One - {cliente_nombre_final}
             if errores_proceso:
                 resumen_final_md.append("\n---\n### ⚠️ Errores\n" + "\n".join(f"- {e}" for e in errores_proceso))
 
-            resumen_final_md.append("\n---")
-            resumen_final_md.append(f"> 💡 **Archivos listos:** Se han generado los archivos **.HTML** y **.EML** en `{DIR_PERIODO}`. Puedes hacer doble clic en el archivo `.eml` para abrirlo directamente en Microsoft Outlook como borrador listo para enviar.")
+            if archivos_generados:
+                resumen_final_md.append("\n---")
+                resumen_final_md.append(f"> 📦 **Descarga rápida:** [Descargar todas las actas y correos en un archivo .ZIP](/descargar-zip/{DIR_PERIODO.name})\n")
+                resumen_final_md.append(f"> 💡 **Archivos listos:** Puedes descargar los archivos **.HTML** o **.EML** directamente arriba. Haz doble clic en el archivo `.eml` descargado para abrirlo en Microsoft Outlook como borrador listo para enviar.")
 
             return JSONResponse(content={
                 "success": True,
                 "mensaje": f"Acta de consultoría exportada con éxito en .HTML y .EML en uploads/{DIR_PERIODO.name}/",
                 "ruta_exportacion": f"uploads/{DIR_PERIODO.name}/",
+                "url_zip": f"/descargar-zip/{DIR_PERIODO.name}" if archivos_generados else None,
+                "archivos_generados": archivos_generados,
                 "acta_borrador": "\n".join(resumen_final_md)
             })
 
@@ -744,11 +874,22 @@ Subject: Confirmación de Consultoría SAP Business One - {cliente_nombre_final}
 if __name__ == "__main__":
     import uvicorn
     import webbrowser, threading
-    # Cuando está frozen (exe), usar el objeto app directamente (el string "main:app" no funciona)
-    # use_colors=False evita errores de stdout en modo ventana silenciosa
-    def abrir_navegador():
-        import time
-        time.sleep(1.5)
-        webbrowser.open("http://127.0.0.1:8000")
-    threading.Thread(target=abrir_navegador, daemon=True).start()
-    uvicorn.run(app, host="127.0.0.1", port=8000, reload=False)
+
+    port = int(os.environ.get("PORT", 8000))
+    # En la nube (Render, Railway, Cloud Run) o Docker, escuchar en 0.0.0.0.
+    # En desarrollo local en Windows, por defecto 127.0.0.1.
+    host = os.environ.get("HOST", "0.0.0.0" if os.environ.get("PORT") else "127.0.0.1")
+
+    # Abrir navegador automáticamente solo cuando se ejecuta localmente en escritorio
+    if not os.environ.get("PORT") and not os.environ.get("VERCEL"):
+        def abrir_navegador():
+            import time
+            time.sleep(1.5)
+            try:
+                webbrowser.open(f"http://localhost:{port}")
+            except Exception:
+                pass
+        threading.Thread(target=abrir_navegador, daemon=True).start()
+
+    print(f"🚀 Iniciando servidor Consensus en http://{host}:{port}")
+    uvicorn.run(app, host=host, port=port, reload=False)
