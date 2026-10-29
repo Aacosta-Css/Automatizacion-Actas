@@ -9,3 +9,5 @@ __pycache__/
 .gitignore
 uploads/*
 !uploads/.gitkeep
+users.db
+.session_secret

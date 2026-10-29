@@ -4,6 +4,13 @@ import uuid
 import re
 import base64
 import unicodedata
+import sqlite3
+import hashlib
+import hmac
+import secrets
+import json
+import html
+from email.utils import formataddr
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
@@ -118,12 +125,224 @@ def obtener_cliente_gemini():
 # Inicialización temprana si la variable ya existe
 obtener_cliente_gemini()
 
-# Datos configurables del consultor desde variables de entorno con valores por defecto
-CONSULTOR_NOMBRE = os.getenv("CONSULTOR_NOMBRE", "Alexander Acosta Beltrán").strip()
-CONSULTOR_CARGO = os.getenv("CONSULTOR_CARGO", "Consultor SAP Business One").strip()
-CONSULTOR_EMAIL = os.getenv("CONSULTOR_EMAIL", "aacosta@consensussa.com").strip()
-CONSULTOR_TEL = os.getenv("CONSULTOR_TEL", "+57 601 7431624").strip()
-CONSULTOR_MOVIL = os.getenv("CONSULTOR_MOVIL", "3212429494").strip()
+# --- AUTENTICACIÓN LOCAL DE CONSULTORES (SQLite + hashlib, sin dependencias externas) ---
+CARGO_DEFAULT = "Consultor SAP Business One"
+TELEFONO_FIJO_DEFAULT = "+57 601 743 16 24"
+DOMINIO_CORPORATIVO = "@consensussa.com"
+COOKIE_SESION = "user_session"
+DURACION_SESION_SEG = 30 * 24 * 3600
+ITERACIONES_HASH = 200_000
+
+DB_PATH = Path("/tmp/users.db") if os.environ.get("VERCEL") else BASE_DIR / "users.db"
+
+
+def conectar_db() -> sqlite3.Connection:
+    conexion = sqlite3.connect(str(DB_PATH), timeout=10)
+    conexion.row_factory = sqlite3.Row
+    return conexion
+
+
+def inicializar_db() -> None:
+    try:
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with conectar_db() as conexion:
+            conexion.execute(f"""
+                CREATE TABLE IF NOT EXISTS users (
+                    email TEXT PRIMARY KEY,
+                    password_hash TEXT NOT NULL,
+                    salt TEXT NOT NULL,
+                    nombre_completo TEXT NOT NULL,
+                    cargo TEXT DEFAULT '{CARGO_DEFAULT}',
+                    celular TEXT,
+                    telefono_fijo TEXT DEFAULT '{TELEFONO_FIJO_DEFAULT}'
+                )
+            """)
+        print(f"✅ Base de datos de usuarios lista en {DB_PATH}")
+    except Exception as err:
+        print(f"⚠️ No se pudo inicializar la base de datos de usuarios ({DB_PATH}): {err}")
+
+
+inicializar_db()
+
+
+def obtener_secreto_sesion() -> bytes:
+    """Clave para firmar la cookie. En Vercel debe definirse SESSION_SECRET para que la sesión
+    sobreviva a reinicios de /tmp y funcione entre instancias."""
+    secreto = os.getenv("SESSION_SECRET", "").strip()
+    if secreto:
+        return secreto.encode()
+    ruta_secreto = DB_PATH.parent / ".session_secret"
+    try:
+        if ruta_secreto.exists():
+            return ruta_secreto.read_text(encoding="utf-8").strip().encode()
+        nuevo = secrets.token_hex(32)
+        ruta_secreto.write_text(nuevo, encoding="utf-8")
+        return nuevo.encode()
+    except OSError:
+        print("⚠️ SESSION_SECRET no definido y no se pudo persistir; las sesiones expirarán al reiniciar.")
+        return secrets.token_hex(32).encode()
+
+
+SECRETO_SESION = obtener_secreto_sesion()
+
+
+def hash_password(password: str, salt: str) -> str:
+    # PBKDF2-HMAC-SHA256 (librería estándar): mucho más resistente a fuerza bruta que un SHA-256 simple.
+    return hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), ITERACIONES_HASH).hex()
+
+
+def verify_password(password: str, salt: str, hashed: str) -> bool:
+    return hmac.compare_digest(hash_password(password, salt), hashed)
+
+
+def limpiar_campo(valor: Optional[str], max_len: int = 120) -> str:
+    # Elimina saltos de línea (evita inyección de encabezados en el .eml) y limita la longitud.
+    return re.sub(r"[\r\n\t]+", " ", str(valor or "")).strip()[:max_len]
+
+
+def perfil_publico(fila) -> dict:
+    return {
+        "email": fila["email"],
+        "nombre_completo": fila["nombre_completo"],
+        "cargo": fila["cargo"] or CARGO_DEFAULT,
+        "celular": fila["celular"] or "",
+        "telefono_fijo": fila["telefono_fijo"] or TELEFONO_FIJO_DEFAULT,
+    }
+
+
+def crear_token_sesion(perfil: dict) -> str:
+    """Token firmado con HMAC que transporta el perfil de firma. Así la firma sigue disponible
+    aunque Vercel limpie /tmp/users.db entre ejecuciones."""
+    datos = dict(perfil, exp=int(time.time()) + DURACION_SESION_SEG)
+    cuerpo = base64.urlsafe_b64encode(json.dumps(datos, ensure_ascii=False).encode()).decode().rstrip("=")
+    firma = hmac.new(SECRETO_SESION, cuerpo.encode(), hashlib.sha256).hexdigest()
+    return f"{cuerpo}.{firma}"
+
+
+def leer_token_sesion(token: Optional[str]) -> Optional[dict]:
+    if not token or "." not in token:
+        return None
+    cuerpo, firma = token.rsplit(".", 1)
+    esperada = hmac.new(SECRETO_SESION, cuerpo.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(firma, esperada):
+        return None
+    try:
+        datos = json.loads(base64.urlsafe_b64decode(cuerpo + "=" * (-len(cuerpo) % 4)))
+    except Exception:
+        return None
+    if not isinstance(datos, dict) or datos.get("exp", 0) < time.time() or not datos.get("email"):
+        return None
+    datos.pop("exp", None)
+    return datos
+
+
+def usuario_actual(request: Request) -> Optional[dict]:
+    return leer_token_sesion(request.cookies.get(COOKIE_SESION))
+
+
+def establecer_sesion(respuesta: Response, perfil: dict) -> None:
+    respuesta.set_cookie(
+        COOKIE_SESION,
+        crear_token_sesion(perfil),
+        max_age=DURACION_SESION_SEG,
+        httponly=True,
+        samesite="lax",
+        secure=bool(os.environ.get("VERCEL")),
+    )
+
+
+def respuesta_con_sesion(perfil: dict, status_code: int = 200) -> JSONResponse:
+    respuesta = JSONResponse(status_code=status_code, content={"success": True, "usuario": perfil})
+    establecer_sesion(respuesta, perfil)
+    return respuesta
+
+
+@app.post("/api/auth/register")
+async def auth_register(
+    email: str = Form(...),
+    password: str = Form(...),
+    nombre_completo: str = Form(...),
+    cargo: str = Form(default=CARGO_DEFAULT),
+    celular: str = Form(default=""),
+    telefono_fijo: str = Form(default=TELEFONO_FIJO_DEFAULT),
+):
+    email = limpiar_campo(email, 120).lower()
+    nombre_completo = limpiar_campo(nombre_completo)
+    if not re.fullmatch(r"[a-z0-9._%+-]+" + re.escape(DOMINIO_CORPORATIVO), email):
+        return JSONResponse(status_code=400, content={"success": False, "error": f"Usa tu correo corporativo ({DOMINIO_CORPORATIVO})."})
+    if len(password) < 8:
+        return JSONResponse(status_code=400, content={"success": False, "error": "La contraseña debe tener al menos 8 caracteres."})
+    if not nombre_completo:
+        return JSONResponse(status_code=400, content={"success": False, "error": "El nombre completo es obligatorio."})
+
+    salt = secrets.token_hex(16)
+    perfil = {
+        "email": email,
+        "nombre_completo": nombre_completo,
+        "cargo": limpiar_campo(cargo) or CARGO_DEFAULT,
+        "celular": limpiar_campo(celular, 40),
+        "telefono_fijo": limpiar_campo(telefono_fijo, 40) or TELEFONO_FIJO_DEFAULT,
+    }
+    try:
+        with conectar_db() as conexion:
+            conexion.execute(
+                "INSERT INTO users (email, password_hash, salt, nombre_completo, cargo, celular, telefono_fijo) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (email, hash_password(password, salt), salt, perfil["nombre_completo"], perfil["cargo"], perfil["celular"], perfil["telefono_fijo"]),
+            )
+    except sqlite3.IntegrityError:
+        return JSONResponse(status_code=409, content={"success": False, "error": "Ya existe una cuenta con ese correo. Inicia sesión."})
+    return respuesta_con_sesion(perfil, status_code=201)
+
+
+@app.post("/api/auth/login")
+async def auth_login(email: str = Form(...), password: str = Form(...)):
+    email = limpiar_campo(email, 120).lower()
+    with conectar_db() as conexion:
+        fila = conexion.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+    if not fila or not verify_password(password, fila["salt"], fila["password_hash"]):
+        return JSONResponse(status_code=401, content={"success": False, "error": "Correo o contraseña incorrectos."})
+    return respuesta_con_sesion(perfil_publico(fila))
+
+
+@app.get("/api/auth/me")
+async def auth_me(request: Request):
+    usuario = usuario_actual(request)
+    if not usuario:
+        return JSONResponse(status_code=401, content={"success": False, "error": "No hay sesión activa."})
+    return {"success": True, "usuario": usuario}
+
+
+@app.put("/api/auth/profile")
+async def auth_profile(
+    request: Request,
+    nombre_completo: str = Form(default=""),
+    cargo: str = Form(default=""),
+    celular: str = Form(default=""),
+    telefono_fijo: str = Form(default=""),
+):
+    usuario = usuario_actual(request)
+    if not usuario:
+        return JSONResponse(status_code=401, content={"success": False, "error": "No hay sesión activa."})
+    perfil = {
+        "email": usuario["email"],
+        "nombre_completo": limpiar_campo(nombre_completo) or usuario.get("nombre_completo", ""),
+        "cargo": limpiar_campo(cargo) or CARGO_DEFAULT,
+        "celular": limpiar_campo(celular, 40),
+        "telefono_fijo": limpiar_campo(telefono_fijo, 40) or TELEFONO_FIJO_DEFAULT,
+    }
+    with conectar_db() as conexion:
+        conexion.execute(
+            "UPDATE users SET nombre_completo = ?, cargo = ?, celular = ?, telefono_fijo = ? WHERE email = ?",
+            (perfil["nombre_completo"], perfil["cargo"], perfil["celular"], perfil["telefono_fijo"], perfil["email"]),
+        )
+    return respuesta_con_sesion(perfil)
+
+
+@app.post("/api/auth/logout")
+async def auth_logout():
+    respuesta = JSONResponse(content={"success": True})
+    respuesta.delete_cookie(COOKIE_SESION, httponly=True, samesite="lax", secure=bool(os.environ.get("VERCEL")))
+    return respuesta
 
 RUTA_IMAGEN_FIRMA = TEMPLATES_DIR / "Imagen1.jpg"
 _IMAGEN_FIRMA_BYTES: Optional[bytes] = None
@@ -341,6 +560,7 @@ async def descargar_zip_periodo(carpeta: str):
 # =======================================================================
 @app.post("/procesar-acta/")
 async def procesar_acta(
+    request: Request,
     archivos: List[UploadFile] = File(default=None),
     audio: Optional[UploadFile] = None,
     tipo_proceso: str = Form(default="consultoria"),
@@ -352,6 +572,18 @@ async def procesar_acta(
     mes_ejecucion: Optional[str] = Form(default=""),
     anio_ejecucion: Optional[str] = Form(default="")
 ):
+    usuario = usuario_actual(request)
+    if not usuario:
+        return JSONResponse(status_code=401, content={"success": False, "error": "Inicia sesión para que el acta salga firmada con tus datos."})
+
+    # Datos de firma del consultor autenticado (escapados porque se insertan en HTML)
+    consultor_nombre = html.escape(usuario.get("nombre_completo", ""))
+    consultor_cargo = html.escape(usuario.get("cargo") or CARGO_DEFAULT)
+    consultor_celular = html.escape(usuario.get("celular", ""))
+    consultor_tel = html.escape(usuario.get("telefono_fijo") or TELEFONO_FIJO_DEFAULT)
+    consultor_email = usuario["email"]
+    remitente_eml = formataddr((usuario.get("nombre_completo", ""), consultor_email))
+
     cliente_gemini = obtener_cliente_gemini()
     if not cliente_gemini:
         return JSONResponse(status_code=500, content={"success": False, "error": "Cliente Gemini no configurado. Asegúrate de configurar GEMINI_API_KEY en las variables de entorno o archivo .env."})
@@ -446,17 +678,18 @@ async def procesar_acta(
                 El orden del cuerpo es fijo: saludo e introducción, actividades realizadas, detalles de la sesión con observaciones, párrafos de confirmación y firma. Solo mejora la presentación visual; no muevas, elimines ni reordenes estas secciones ni cambies su contenido.
 
                 Conserva al final el mismo bloque de firma de las actas de consultoría, con una línea superior, tipografía y espaciado uniformes. Mantén estos datos en este orden y sin variaciones:
-                Presenta la firma visualmente así: “Cordialmente,” en una línea; en la siguiente, “{CONSULTOR_NOMBRE}” en negrita y azul oscuro; debajo “{CONSULTOR_CARGO}”; después las líneas “Tel: {CONSULTOR_TEL}” y “Móvil: {CONSULTOR_MOVIL}”. No conviertas estos datos en una lista ni los agrupes en una sola línea.
-                {CONSULTOR_NOMBRE}
-                {CONSULTOR_CARGO}
-                Tel: {CONSULTOR_TEL}
-                Móvil: {CONSULTOR_MOVIL}
+                Presenta la firma visualmente así: “Cordialmente,” en una línea; en la siguiente, “{consultor_nombre}” en negrita y azul oscuro; debajo “{consultor_cargo}”; después las líneas “Tel: {consultor_tel}”, “Móvil: {consultor_celular}” y “Correo: {consultor_email}”. No conviertas estos datos en una lista ni los agrupes en una sola línea.
+                {consultor_nombre}
+                {consultor_cargo}
+                Tel: {consultor_tel}
+                Móvil: {consultor_celular}
+                Correo: {consultor_email}
                 CONSENSUS S.A.S.
 
 
 
-                Debajo de CONSENSUS S.A.S., incluye la imagen de firma con ancho máximo de 250 px y la etiqueta exacta:
-                <img src="cid:imagen_firma" alt="Consensus S.A.S." style="display: block; max-width: 250px; height: auto; margin-top: 10px;" />
+                Debajo de CONSENSUS S.A.S., incluye la imagen de firma con ancho máximo de 400px y la etiqueta exacta:
+                <img src="cid:imagen_firma" alt="Consensus S.A.S." style="display: block; max-width: 400px; height: auto; margin-top: 10px;" />
 
                 8. DESTINATARIO Y ASUNTO
                 Para cada cliente usa el correo válido de Correo Responsable. Si hay varios correos responsables válidos y distintos para el mismo cliente, inclúyelos en el encabezado To, separados por coma (,), sin duplicarlos. Si no hay correo, escribe exactamente [Correo no encontrado]. No inventes direcciones.
@@ -519,7 +752,7 @@ async def procesar_acta(
                             if 'cid:imagen_firma' in html_para_archivo:
                                 html_para_archivo = html_para_archivo.replace('cid:imagen_firma', uri_b64)
                             elif 'CONSENSUS S.A.S.</p>' in html_para_archivo and uri_b64 not in html_para_archivo:
-                                html_para_archivo = html_para_archivo.replace('CONSENSUS S.A.S.</p>', f'CONSENSUS S.A.S.</p><br><img src="{uri_b64}" alt="Consensus S.A.S." style="display: block; max-width: 250px; height: auto; margin-top: 10px;" />', 1)
+                                html_para_archivo = html_para_archivo.replace('CONSENSUS S.A.S.</p>', f'CONSENSUS S.A.S.</p><br><img src="{uri_b64}" alt="Consensus S.A.S." style="display: block; max-width: 400px; height: auto; margin-top: 10px;" />', 1)
                         except Exception as e_b64:
                             print(f"Advertencia al incrustar Base64 en HTML: {e_b64}")
 
@@ -539,7 +772,7 @@ async def procesar_acta(
                     subject = re.search(r'Subject:\s*(.*)', encabezados_eml, re.IGNORECASE)
                     msg['To'] = to_addr.group(1).strip() if to_addr and to_addr.group(1).strip() else '[Correo no especificado]'
                     msg['Subject'] = subject.group(1).strip() if subject and subject.group(1).strip() else f"Reporte de Actividades - {nombre_cliente_match}"
-                    msg['From'] = f'{CONSULTOR_NOMBRE} <{CONSULTOR_EMAIL}>'
+                    msg['From'] = remitente_eml
                     
                     # Encabezado clave para que Outlook lo abra como borrador
                     msg['X-Unsent'] = '1'
@@ -742,10 +975,11 @@ No incluyas explicaciones previas ni posteriores, ni bloques de código con comi
 
         <div style="border-top: 1px solid #e0e0e0; padding-top: 20px; font-size: 13px; color: #333333; line-height: 1.4;">
           <p style="margin: 0 0 5px 0;">Cordialmente,</p>
-          <p style="margin: 0; font-weight: bold; color: #003366; font-size: 14px;">{CONSULTOR_NOMBRE}</p>
-          <p style="margin: 0;">{CONSULTOR_CARGO}</p>
-          <p style="margin: 0;">Tel: {CONSULTOR_TEL}</p>
-          <p style="margin: 0;">Móvil: {CONSULTOR_MOVIL}</p>
+          <p style="margin: 0; font-weight: bold; color: #003366; font-size: 14px;">{consultor_nombre}</p>
+          <p style="margin: 0;">{consultor_cargo}</p>
+          <p style="margin: 0;">Tel: {consultor_tel}</p>
+          <p style="margin: 0;">Móvil: {consultor_celular}</p>
+          <p style="margin: 0;">Correo: {consultor_email}</p>
           <p style="margin: 5px 0 0 0; font-weight: bold; color: #003366;">CONSENSUS S.A.S.</p>
         </div>
       </td>
@@ -822,10 +1056,11 @@ Subject: Confirmación de Consultoría SAP Business One - {cliente_nombre_final}
     <div style="line-height: 1.6; color: #333;">{contenido_html.replace(chr(10), '<br>')}</div>
      <div style="margin-top: 25px; border-top: 1px solid #e0e0e0; padding-top: 20px; font-size: 13px; color: #333333; line-height: 1.4;">
        <p style="margin: 0 0 5px 0;">Cordialmente,</p>
-      <p style="margin: 0; font-weight: bold; color: #003366;">{CONSULTOR_NOMBRE}</p>
-       <p style="margin: 0;">{CONSULTOR_CARGO}</p>
-       <p style="margin: 0;">Tel: {CONSULTOR_TEL}</p>
-       <p style="margin: 0;">Móvil: {CONSULTOR_MOVIL}</p>
+      <p style="margin: 0; font-weight: bold; color: #003366;">{consultor_nombre}</p>
+       <p style="margin: 0;">{consultor_cargo}</p>
+       <p style="margin: 0;">Tel: {consultor_tel}</p>
+       <p style="margin: 0;">Móvil: {consultor_celular}</p>
+       <p style="margin: 0;">Correo: {consultor_email}</p>
        <p style="margin: 5px 0 0 0; font-weight: bold; color: #003366;">CONSENSUS S.A.S.</p>
     </div>
   </div>
@@ -856,7 +1091,7 @@ Subject: Confirmación de Consultoría SAP Business One - {cliente_nombre_final}
                             if 'cid:imagen_firma' in html_para_archivo:
                                 html_para_archivo = html_para_archivo.replace('cid:imagen_firma', uri_b64)
                             elif 'CONSENSUS S.A.S.</p>' in html_para_archivo and uri_b64 not in html_para_archivo:
-                                html_para_archivo = html_para_archivo.replace('CONSENSUS S.A.S.</p>', f'CONSENSUS S.A.S.</p><br><img src="{uri_b64}" alt="Consensus S.A.S." style="display: block; max-width: 250px; height: auto; margin-top: 10px;" />', 1)
+                                html_para_archivo = html_para_archivo.replace('CONSENSUS S.A.S.</p>', f'CONSENSUS S.A.S.</p><br><img src="{uri_b64}" alt="Consensus S.A.S." style="display: block; max-width: 400px; height: auto; margin-top: 10px;" />', 1)
                         except Exception as e_b64:
                             print(f"Advertencia al incrustar Base64 en HTML: {e_b64}")
 
@@ -872,7 +1107,7 @@ Subject: Confirmación de Consultoría SAP Business One - {cliente_nombre_final}
 
                     msg['To'] = to_addr
                     msg['Subject'] = subject
-                    msg['From'] = f'{CONSULTOR_NOMBRE} <{CONSULTOR_EMAIL}>'
+                    msg['From'] = remitente_eml
                     msg['X-Unsent'] = '1'  # Indica a Outlook abrirlo directamente como borrador editable
 
                     html_para_eml = contenido_html
