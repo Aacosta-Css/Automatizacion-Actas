@@ -24,6 +24,7 @@ from google import genai
 from google.genai import types
 import tempfile
 import zipfile
+import time
 
 # --- 1. CONFIGURACIÓN INICIAL ---
 import sys
@@ -41,13 +42,42 @@ load_dotenv(dotenv_path=BASE_DIR / ".env")
 
 TEMPLATES_DIR = BASE_DIR / "templates"
 
+
+def guardar_texto_con_reintentos(ruta: Path, texto: str, encoding: str = "utf-8", reintentos: int = 4, pausa: float = 0.35) -> None:
+    """Escribe texto en un archivo tolerando micro-bloqueos de sincronización de OneDrive."""
+    for intento in range(reintentos):
+        try:
+            ruta.write_text(texto, encoding=encoding)
+            return
+        except PermissionError:
+            if intento == reintentos - 1:
+                raise
+            time.sleep(pausa * (intento + 1))
+
+
+def guardar_bytes_con_reintentos(ruta: Path, datos: bytes, reintentos: int = 4, pausa: float = 0.35) -> None:
+    """Escribe bytes en un archivo tolerando micro-bloqueos de sincronización de OneDrive."""
+    for intento in range(reintentos):
+        try:
+            ruta.write_bytes(datos)
+            return
+        except PermissionError:
+            if intento == reintentos - 1:
+                raise
+            time.sleep(pausa * (intento + 1))
+
+
 def obtener_directorio_uploads() -> Path:
     candidato = BASE_DIR / "uploads"
     try:
         candidato.mkdir(parents=True, exist_ok=True)
-        prueba = candidato / ".permiso_test"
-        prueba.touch()
-        prueba.unlink()
+        # Test de permisos con archivo aleatorio no bloqueante
+        prueba = candidato / f".permiso_test_{uuid.uuid4().hex[:6]}"
+        prueba.write_text("ok", encoding="utf-8")
+        try:
+            prueba.unlink()
+        except OSError:
+            pass  # Si OneDrive retiene el handle temporalmente, la prueba de escritura ya fue exitosa.
         return candidato
     except (OSError, PermissionError):
         # En entornos serverless de solo lectura (como Vercel/AWS Lambda)
@@ -88,7 +118,25 @@ def obtener_cliente_gemini():
 # Inicialización temprana si la variable ya existe
 obtener_cliente_gemini()
 
+# Datos configurables del consultor desde variables de entorno con valores por defecto
+CONSULTOR_NOMBRE = os.getenv("CONSULTOR_NOMBRE", "Alexander Acosta Beltrán").strip()
+CONSULTOR_CARGO = os.getenv("CONSULTOR_CARGO", "Consultor SAP Business One").strip()
+CONSULTOR_EMAIL = os.getenv("CONSULTOR_EMAIL", "aacosta@consensussa.com").strip()
+CONSULTOR_TEL = os.getenv("CONSULTOR_TEL", "+57 601 7431624").strip()
+CONSULTOR_MOVIL = os.getenv("CONSULTOR_MOVIL", "3212429494").strip()
+
 RUTA_IMAGEN_FIRMA = TEMPLATES_DIR / "Imagen1.jpg"
+_IMAGEN_FIRMA_BYTES: Optional[bytes] = None
+
+def obtener_bytes_imagen_firma() -> Optional[bytes]:
+    global _IMAGEN_FIRMA_BYTES
+    if _IMAGEN_FIRMA_BYTES is None and RUTA_IMAGEN_FIRMA.exists():
+        try:
+            _IMAGEN_FIRMA_BYTES = RUTA_IMAGEN_FIRMA.read_bytes()
+        except Exception as e:
+            print(f"Advertencia al leer imagen de firma: {e}")
+    return _IMAGEN_FIRMA_BYTES
+
 AUDIO_UPLOADS_DIR = UPLOADS_DIR / "Audios_Consultoria"
 AUDIO_EXTENSIONS = {".webm", ".wav", ".mp3", ".m4a", ".ogg", ".mp4"}
 try:
@@ -182,9 +230,10 @@ def preparar_excel_para_prompt(contenido_bytes, mes=None, anio=None):
             if len(candidatos_fecha) == 1:
                 valores_fecha = df[candidatos_fecha[0]]
                 fechas = pd.to_datetime(valores_fecha, errors="coerce", dayfirst=True)
-                valores_no_vacios = valores_fecha.notna()
-                if valores_no_vacios.any() and fechas[valores_no_vacios].notna().all():
-                    df = df.loc[(fechas.dt.month == numero_mes) & (fechas.dt.year == anio_numero)]
+                # Filtra las filas que correspondan exactamente al mes y año solicitado sin descartar si hay celdas no parseables
+                mascara_periodo = (fechas.dt.month == numero_mes) & (fechas.dt.year == anio_numero)
+                if mascara_periodo.any():
+                    df = df.loc[mascara_periodo.fillna(False)]
 
         if df.empty:
             continue
@@ -195,7 +244,12 @@ def preparar_excel_para_prompt(contenido_bytes, mes=None, anio=None):
 
 def llamar_gemini_con_fallback(client_gemini, contents, modelos_prioridad=None):
     if modelos_prioridad is None:
-        modelos_prioridad = ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-2.5-flash"]
+        modelo_config = os.getenv("GEMINI_MODEL", "").strip()
+        modelos_estables = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.8-flash"]
+        if modelo_config:
+            modelos_prioridad = [modelo_config] + [m for m in modelos_estables if m != modelo_config]
+        else:
+            modelos_prioridad = modelos_estables
     ultimo_error = None
     for model_name in modelos_prioridad:
         try:
@@ -207,7 +261,6 @@ def llamar_gemini_con_fallback(client_gemini, contents, modelos_prioridad=None):
                 print(f"⚠️ Modelo '{model_name}' no disponible temporalmente ({err_str[:80]}...). Probando fallback...")
                 continue
             raise e
-    # pyrefly: ignore[bad-raise]
     raise ultimo_error
     
 # --- 2. RUTAS Y DESCARGAS ---
@@ -311,9 +364,12 @@ async def procesar_acta(
             mes_limpio, anio_limpio = mes_ejecucion.strip(), anio_ejecucion.strip()
             periodo_solicitado = f"{mes_limpio} de {anio_limpio}"
             
-            archivo_excel = next((f for f in archivos if f.filename and f.filename.lower().endswith((".xlsx", ".xls"))), None)
+            if not archivos or not any(f.filename for f in archivos if f):
+                return JSONResponse(status_code=400, content={"success": False, "error": "Debes adjuntar al menos un archivo Excel (.xlsx, .xls) para continuar."})
+
+            archivo_excel = next((f for f in archivos if f and f.filename and f.filename.lower().endswith((".xlsx", ".xls"))), None)
             if not archivo_excel:
-                return JSONResponse(status_code=400, content={"success": False, "error": "Adjunta un archivo Excel (.xlsx, .xls)."})
+                return JSONResponse(status_code=400, content={"success": False, "error": "Adjunta un archivo Excel válido (.xlsx, .xls)."})
 
             contenido_bytes = await archivo_excel.read()
             texto_tablas_excel = f"Archivo: {archivo_excel.filename}\n\n" + preparar_excel_para_prompt(
@@ -390,11 +446,11 @@ async def procesar_acta(
                 El orden del cuerpo es fijo: saludo e introducción, actividades realizadas, detalles de la sesión con observaciones, párrafos de confirmación y firma. Solo mejora la presentación visual; no muevas, elimines ni reordenes estas secciones ni cambies su contenido.
 
                 Conserva al final el mismo bloque de firma de las actas de consultoría, con una línea superior, tipografía y espaciado uniformes. Mantén estos datos en este orden y sin variaciones:
-                Presenta la firma visualmente así: “Cordialmente,” en una línea; en la siguiente, “Alexander Acosta Beltrán” en negrita y azul oscuro; debajo “Consultor SAP Business One”; después las líneas “Tel: +57 601 7431624” y “Móvil: 3212429494”. No conviertas estos datos en una lista ni los agrupes en una sola línea.
-                Alexander Acosta Beltrán
-                Consultor SAP Business One
-                Tel: +57 601 7431624
-                Móvil: 3212429494
+                Presenta la firma visualmente así: “Cordialmente,” en una línea; en la siguiente, “{CONSULTOR_NOMBRE}” en negrita y azul oscuro; debajo “{CONSULTOR_CARGO}”; después las líneas “Tel: {CONSULTOR_TEL}” y “Móvil: {CONSULTOR_MOVIL}”. No conviertas estos datos en una lista ni los agrupes en una sola línea.
+                {CONSULTOR_NOMBRE}
+                {CONSULTOR_CARGO}
+                Tel: {CONSULTOR_TEL}
+                Móvil: {CONSULTOR_MOVIL}
                 CONSENSUS S.A.S.
 
 
@@ -403,7 +459,7 @@ async def procesar_acta(
                 <img src="cid:imagen_firma" alt="Consensus S.A.S." style="display: block; max-width: 250px; height: auto; margin-top: 10px;" />
 
                 8. DESTINATARIO Y ASUNTO
-                Para cada cliente usa el correo válido de Correo Responsable. Si hay varios correos responsables válidos y distintos para el mismo cliente, inclúyelos en el encabezado To, separados por punto y coma, sin duplicarlos. Si no hay correo, escribe exactamente [Correo no encontrado]. No inventes direcciones.
+                Para cada cliente usa el correo válido de Correo Responsable. Si hay varios correos responsables válidos y distintos para el mismo cliente, inclúyelos en el encabezado To, separados por coma (,), sin duplicarlos. Si no hay correo, escribe exactamente [Correo no encontrado]. No inventes direcciones.
 
                 El asunto debe tener exactamente este formato:
                 Relación de actividades realizadas - [Nombre del Cliente] - {mes_limpio.upper()} {anio_limpio}
@@ -451,13 +507,14 @@ async def procesar_acta(
                     if len(partes) < 3: continue
                     
                     contenido_html, encabezados_eml, resumen_md = partes[0].strip(), partes[1].strip(), partes[2].strip()
-                    safe_cliente = "".join(c for c in nombre_cliente_match if c.isalnum() or c in " ").strip().replace(" ", "_")
+                    safe_cliente = nombre_archivo_seguro(nombre_cliente_match, "Cliente")
 
                     # Preparar HTML para navegador incrustando Base64 de la imagen de firma
                     html_para_archivo = contenido_html
-                    if RUTA_IMAGEN_FIRMA.exists():
+                    img_bytes = obtener_bytes_imagen_firma()
+                    if img_bytes:
                         try:
-                            b64_img = base64.b64encode(RUTA_IMAGEN_FIRMA.read_bytes()).decode('utf-8')
+                            b64_img = base64.b64encode(img_bytes).decode('utf-8')
                             uri_b64 = f"data:image/jpeg;base64,{b64_img}"
                             if 'cid:imagen_firma' in html_para_archivo:
                                 html_para_archivo = html_para_archivo.replace('cid:imagen_firma', uri_b64)
@@ -467,15 +524,22 @@ async def procesar_acta(
                             print(f"Advertencia al incrustar Base64 en HTML: {e_b64}")
 
                     nombre_html = f"{safe_cliente}_Reporte_{mes_limpio}_{anio_limpio}.html"
-                    (DIR_PERIODO / nombre_html).write_text(html_para_archivo, encoding="utf-8")
+                    nombre_eml = f"{safe_cliente}_Correo_{mes_limpio}_{anio_limpio}.eml"
+                    contador_archivo = 2
+                    while (DIR_PERIODO / nombre_html).exists() or (DIR_PERIODO / nombre_eml).exists():
+                        nombre_html = f"{safe_cliente}_Reporte_{mes_limpio}_{anio_limpio}_{contador_archivo}.html"
+                        nombre_eml = f"{safe_cliente}_Correo_{mes_limpio}_{anio_limpio}_{contador_archivo}.eml"
+                        contador_archivo += 1
+
+                    guardar_texto_con_reintentos(DIR_PERIODO / nombre_html, html_para_archivo)
                     
                     # ** CAMBIO 2: LÓGICA PARA CREAR EL EML EDITABLE **
                     msg = EmailMessage()
-                    to_addr = re.search(r'To: (.*)', encabezados_eml)
-                    subject = re.search(r'Subject: (.*)', encabezados_eml)
-                    msg['To'] = to_addr.group(1).strip() if to_addr else '[Correo no especificado]'
-                    msg['Subject'] = subject.group(1).strip() if subject else f"Reporte de Actividades - {nombre_cliente_match}"
-                    msg['From'] = 'Alexander Acosta <aacosta@consensussa.com>'
+                    to_addr = re.search(r'To:\s*(.*)', encabezados_eml, re.IGNORECASE)
+                    subject = re.search(r'Subject:\s*(.*)', encabezados_eml, re.IGNORECASE)
+                    msg['To'] = to_addr.group(1).strip() if to_addr and to_addr.group(1).strip() else '[Correo no especificado]'
+                    msg['Subject'] = subject.group(1).strip() if subject and subject.group(1).strip() else f"Reporte de Actividades - {nombre_cliente_match}"
+                    msg['From'] = f'{CONSULTOR_NOMBRE} <{CONSULTOR_EMAIL}>'
                     
                     # Encabezado clave para que Outlook lo abra como borrador
                     msg['X-Unsent'] = '1'
@@ -488,15 +552,15 @@ async def procesar_acta(
                     msg.add_alternative(html_para_eml, subtype='html')
 
                     # Adjuntar imagen como recurso CID relacionado al HTML para Outlook
-                    if RUTA_IMAGEN_FIRMA.exists():
+                    if img_bytes:
                         try:
-                            msg.get_payload()[1].add_related(RUTA_IMAGEN_FIRMA.read_bytes(), 'image', 'jpeg', cid='<imagen_firma>')
+                            payloads = msg.get_payload()
+                            if isinstance(payloads, list) and len(payloads) > 1:
+                                payloads[1].add_related(img_bytes, 'image', 'jpeg', cid='<imagen_firma>')
                         except Exception as e_cid:
                             print(f"Advertencia al adjuntar imagen CID a EML: {e_cid}")
                     
-                    nombre_eml = f"{safe_cliente}_Correo_{mes_limpio}_{anio_limpio}.eml"
-                    with open(DIR_PERIODO / nombre_eml, 'w', encoding='utf-8') as f_eml:
-                        f_eml.write(msg.as_string())
+                    guardar_texto_con_reintentos(DIR_PERIODO / nombre_eml, msg.as_string())
 
                     archivos_generados.append({
                         "cliente": nombre_cliente_match,
@@ -678,10 +742,10 @@ No incluyas explicaciones previas ni posteriores, ni bloques de código con comi
 
         <div style="border-top: 1px solid #e0e0e0; padding-top: 20px; font-size: 13px; color: #333333; line-height: 1.4;">
           <p style="margin: 0 0 5px 0;">Cordialmente,</p>
-          <p style="margin: 0; font-weight: bold; color: #003366; font-size: 14px;">Alexander Acosta Beltrán</p>
-          <p style="margin: 0;">Consultor SAP Business One</p>
-          <p style="margin: 0;">Tel: +57 601 7431624</p>
-          <p style="margin: 0;">Móvil: 3212429494</p>
+          <p style="margin: 0; font-weight: bold; color: #003366; font-size: 14px;">{CONSULTOR_NOMBRE}</p>
+          <p style="margin: 0;">{CONSULTOR_CARGO}</p>
+          <p style="margin: 0;">Tel: {CONSULTOR_TEL}</p>
+          <p style="margin: 0;">Móvil: {CONSULTOR_MOVIL}</p>
           <p style="margin: 5px 0 0 0; font-weight: bold; color: #003366;">CONSENSUS S.A.S.</p>
         </div>
       </td>
@@ -758,19 +822,16 @@ Subject: Confirmación de Consultoría SAP Business One - {cliente_nombre_final}
     <div style="line-height: 1.6; color: #333;">{contenido_html.replace(chr(10), '<br>')}</div>
      <div style="margin-top: 25px; border-top: 1px solid #e0e0e0; padding-top: 20px; font-size: 13px; color: #333333; line-height: 1.4;">
        <p style="margin: 0 0 5px 0;">Cordialmente,</p>
-      <p style="margin: 0; font-weight: bold; color: #003366;">Alexander Acosta Beltrán</p>
-       <p style="margin: 0;">Consultor SAP Business One</p>
-       <p style="margin: 0;">Tel: +57 601 7431624</p>
-       <p style="margin: 0;">Móvil: 3212429494</p>
+      <p style="margin: 0; font-weight: bold; color: #003366;">{CONSULTOR_NOMBRE}</p>
+       <p style="margin: 0;">{CONSULTOR_CARGO}</p>
+       <p style="margin: 0;">Tel: {CONSULTOR_TEL}</p>
+       <p style="margin: 0;">Móvil: {CONSULTOR_MOVIL}</p>
        <p style="margin: 5px 0 0 0; font-weight: bold; color: #003366;">CONSENSUS S.A.S.</p>
     </div>
   </div>
 </body></html>"""
 
-                    safe_cliente = "".join(c for c in nombre_cliente_match if c.isalnum() or c in " ").strip().replace(" ", "_")
-                    if not safe_cliente:
-                        safe_cliente = "Cliente"
-
+                    safe_cliente = nombre_archivo_seguro(nombre_cliente_match, "Cliente")
                     safe_fecha = "".join(c for c in fecha_final if c.isalnum() or c in "_-").strip().replace("-", "_")
                     if not safe_fecha:
                         safe_fecha = "Fecha"
@@ -787,9 +848,10 @@ Subject: Confirmación de Consultoría SAP Business One - {cliente_nombre_final}
 
                     # Preparar HTML para navegador incrustando Base64 de la imagen de firma
                     html_para_archivo = contenido_html
-                    if RUTA_IMAGEN_FIRMA.exists():
+                    img_bytes = obtener_bytes_imagen_firma()
+                    if img_bytes:
                         try:
-                            b64_img = base64.b64encode(RUTA_IMAGEN_FIRMA.read_bytes()).decode('utf-8')
+                            b64_img = base64.b64encode(img_bytes).decode('utf-8')
                             uri_b64 = f"data:image/jpeg;base64,{b64_img}"
                             if 'cid:imagen_firma' in html_para_archivo:
                                 html_para_archivo = html_para_archivo.replace('cid:imagen_firma', uri_b64)
@@ -798,7 +860,7 @@ Subject: Confirmación de Consultoría SAP Business One - {cliente_nombre_final}
                         except Exception as e_b64:
                             print(f"Advertencia al incrustar Base64 en HTML: {e_b64}")
 
-                    (DIR_PERIODO / nombre_html).write_text(html_para_archivo, encoding="utf-8")
+                    guardar_texto_con_reintentos(DIR_PERIODO / nombre_html, html_para_archivo)
 
                     # Crear archivo .EML funcional para Outlook en uploads/
                     msg = EmailMessage()
@@ -810,7 +872,7 @@ Subject: Confirmación de Consultoría SAP Business One - {cliente_nombre_final}
 
                     msg['To'] = to_addr
                     msg['Subject'] = subject
-                    msg['From'] = 'Alexander Acosta <aacosta@consensussa.com>'
+                    msg['From'] = f'{CONSULTOR_NOMBRE} <{CONSULTOR_EMAIL}>'
                     msg['X-Unsent'] = '1'  # Indica a Outlook abrirlo directamente como borrador editable
 
                     html_para_eml = contenido_html
@@ -821,14 +883,15 @@ Subject: Confirmación de Consultoría SAP Business One - {cliente_nombre_final}
                     msg.add_alternative(html_para_eml, subtype='html')
 
                     # Adjuntar imagen como recurso CID relacionado al HTML para Outlook
-                    if RUTA_IMAGEN_FIRMA.exists():
+                    if img_bytes:
                         try:
-                            msg.get_payload()[1].add_related(RUTA_IMAGEN_FIRMA.read_bytes(), 'image', 'jpeg', cid='<imagen_firma>')
+                            payloads = msg.get_payload()
+                            if isinstance(payloads, list) and len(payloads) > 1:
+                                payloads[1].add_related(img_bytes, 'image', 'jpeg', cid='<imagen_firma>')
                         except Exception as e_cid:
                             print(f"Advertencia al adjuntar imagen CID a EML: {e_cid}")
 
-                    with open(DIR_PERIODO / nombre_eml, 'w', encoding='utf-8') as f_eml:
-                        f_eml.write(msg.as_string())
+                    guardar_texto_con_reintentos(DIR_PERIODO / nombre_eml, msg.as_string())
 
                     archivos_generados.append({
                         "cliente": nombre_cliente_match,

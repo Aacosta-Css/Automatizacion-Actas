@@ -37,9 +37,12 @@ El script activará el entorno virtual `.venv` (si existe), iniciará el servido
    ```bash
    cp .env.example .env
    ```
-   Dentro de `.env`:
+   Dentro de `.env` puedes configurar la clave y opcionalmente los datos del consultor:
    ```env
    GEMINI_API_KEY=tu_clave_de_gemini_aqui
+   GEMINI_MODEL=gemini-3.6-flash
+   CONSULTOR_NOMBRE=Alexander Acosta Beltrán
+   CONSULTOR_EMAIL=aacosta@consensussa.com
    ```
 
 4. **Iniciar el servidor:**
@@ -58,23 +61,17 @@ El script activará el entorno virtual `.venv` (si existe), iniciará el servido
 
 La aplicación está preparada para desplegarse sin problemas en múltiples plataformas en la nube:
 
-### Opción A: Despliegue en Vercel (Recomendado Serverless)
-1. Conecta tu repositorio de GitHub o GitLab a **[Vercel](https://vercel.com)**.
-2. Vercel detectará la configuración automáticamente mediante:
-   - `vercel.json` (configurado con `@vercel/python`, `maxDuration: 60` y bundle de `templates/`).
-   - `api/index.py` (entry point serverless compatible).
-3. En la sección **Settings > Environment Variables** de tu proyecto en Vercel, agrega:
-   - **Key**: `GEMINI_API_KEY`
-   - **Value**: `Tu clave de API de Gemini`
-4. Haz clic en **Deploy**. ¡Listo!
+### Opción A: Despliegue con Docker / Cloud Run / Render / Railway (Recomendado para Producción)
+Dado que la aplicación genera archivos `.html`, `.eml` y descargas en `.zip`, se recomienda desplegar en entornos con sistema de archivos persistente o contenedores:
+1. **Render / Railway / Heroku:** Detección automática mediante `Procfile`.
+2. **Google Cloud Run / AWS ECS:** Utilizando el `Dockerfile` incluido.
 
-### Opción B: Despliegue en Render / Railway / Heroku
-1. Conecta tu repositorio a **[Render](https://render.com)** o **[Railway](https://railway.app)**.
-2. Tipo de servicio: **Web Service** (Python).
-3. Build Command:
-   ```bash
-   pip install -r requirements.txt
-   ```
+### Opción B: Despliegue en Vercel (Serverless)
+*Nota: Los entornos serverless de Vercel tienen almacenamiento efímero en `/tmp` y límites de ejecución de 60 segundos.*
+1. Conecta tu repositorio de GitHub o GitLab a **[Vercel](https://vercel.com)**.
+2. Vercel detectará la configuración automáticamente mediante `vercel.json` y `api/index.py`.
+3. En la sección **Settings > Environment Variables**, agrega `GEMINI_API_KEY` y `GEMINI_MODEL=gemini-3.6-flash`.
+4. Haz clic en **Deploy**.
 4. Start Command (detectado automáticamente por `Procfile`):
    ```bash
    uvicorn main:app --host 0.0.0.0 --port $PORT
