@@ -13,7 +13,7 @@
 </head>
 
 <body class="bg-gray-50 text-gray-800 font-sans min-h-screen">
-    <div class="max-w-7xl mx-auto py-8 px-4">
+    <div id="appPrincipal" class="max-w-7xl mx-auto py-8 px-4" inert>
         <header class="mb-6 border-b pb-4 border-gray-200 flex justify-between items-center">
             <div>
                 <h1 class="text-3xl font-extrabold text-blue-900">✨ Generador Inteligente de Actas</h1>
@@ -21,15 +21,10 @@
                     consultoría e implementación.</p>
             </div>
             <div class="text-right space-y-2">
-                <div id="auth-anonimo">
-                    <button type="button" id="btnAbrirAuth"
-                        class="px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white font-semibold rounded-lg shadow text-sm transition">
-                        🔑 Iniciar Sesión / Registro
-                    </button>
-                </div>
                 <div id="auth-usuario" class="hidden">
                     <p class="text-sm font-semibold text-blue-900">👤 <span id="lblUsuarioNombre"></span>
-                        <span class="font-normal text-gray-500">(<span id="lblUsuarioCargo"></span>)</span></p>
+                        <span class="font-normal text-gray-500">(<span id="lblUsuarioCargo"></span>)</span>
+                    </p>
                     <div class="flex justify-end gap-2 mt-1">
                         <button type="button" id="btnAbrirPerfil"
                             class="px-3 py-1 bg-white border border-gray-300 hover:bg-gray-50 rounded text-xs font-medium text-blue-800">
@@ -63,8 +58,7 @@
                         <div class="space-y-3">
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div>
-                                    <label for="nombre_cliente"
-                                        class="block text-xs font-bold text-gray-600 mb-1">
+                                    <label for="nombre_cliente" class="block text-xs font-bold text-gray-600 mb-1">
                                         Nombre del Cliente <span id="req-cliente" class="text-red-500">*</span>
                                     </label>
                                     <input type="text" id="nombre_cliente" name="nombre_cliente"
@@ -80,16 +74,19 @@
                                 </div>
                             </div>
                             <p id="nota-cliente-excel" class="text-[11px] text-blue-700 font-medium hidden">
-                                ℹ️ En <b>Actas de Implementación</b>, el nombre del cliente y responsable se obtienen automáticamente del archivo Excel.
+                                ℹ️ En <b>Actas de Implementación</b>, el nombre del cliente y responsable se obtienen
+                                automáticamente del archivo Excel.
                             </p>
                             <!-- Bloque para Acta de Implementación: Mes y Año obligatorios -->
-                            <div id="bloque-periodo-implementacion" class="p-3 bg-blue-50/70 border border-blue-200 rounded-lg space-y-2">
+                            <div id="bloque-periodo-implementacion"
+                                class="p-3 bg-blue-50/70 border border-blue-200 rounded-lg space-y-2">
                                 <label class="block text-xs font-bold text-blue-900">
                                     📅 Período de Ejecución a Procesar (Filtro Estricto)
                                 </label>
                                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <div>
-                                        <label for="mes_ejecucion" class="block text-[11px] font-bold text-gray-700 mb-1">Mes</label>
+                                        <label for="mes_ejecucion"
+                                            class="block text-[11px] font-bold text-gray-700 mb-1">Mes</label>
                                         <select id="mes_ejecucion" name="mes_ejecucion"
                                             class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 bg-white font-medium">
                                             <option value="Enero">Enero</option>
@@ -107,14 +104,17 @@
                                         </select>
                                     </div>
                                     <div>
-                                        <label for="anio_ejecucion" class="block text-[11px] font-bold text-gray-700 mb-1">Año</label>
-                                        <input type="number" id="anio_ejecucion" name="anio_ejecucion" min="2020" max="2035"
+                                        <label for="anio_ejecucion"
+                                            class="block text-[11px] font-bold text-gray-700 mb-1">Año</label>
+                                        <input type="number" id="anio_ejecucion" name="anio_ejecucion" min="2020"
+                                            max="2035"
                                             class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 bg-white font-medium"
                                             placeholder="2026">
                                     </div>
                                 </div>
                                 <p class="text-[11px] text-amber-800 font-medium">
-                                    ⚠️ Solo se procesarán actividades de este mes y año. Se descartarán automáticamente fechas anteriores o a futuro.
+                                    ⚠️ Solo se procesarán actividades de este mes y año. Se descartarán automáticamente
+                                    fechas anteriores o a futuro.
                                 </p>
                             </div>
 
@@ -161,7 +161,8 @@
                                 ⬇️ Descargar audio para conservarlo
                             </button>
                             <div class="mt-3">
-                                <label for="audioExistente" class="block text-xs font-bold text-gray-700 mb-1">O carga un audio guardado para reprocesarlo</label>
+                                <label for="audioExistente" class="block text-xs font-bold text-gray-700 mb-1">O carga
+                                    un audio guardado para reprocesarlo</label>
                                 <input type="file" id="audioExistente" accept="audio/*,.webm,.wav,.mp3,.m4a,.ogg,.mp4"
                                     class="block w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
                             </div>
@@ -197,19 +198,22 @@
                         <h2 class="text-base font-bold text-gray-700">📄 Resumen de Generación y Archivos</h2>
                         <div class="flex items-center gap-1.5 text-xs text-gray-500 mt-0.5">
                             <span class="font-medium text-gray-600">📁 Ruta de exportación:</span>
-                            <span id="badgeRutaExportacion" class="font-mono bg-blue-50 text-blue-800 border border-blue-200 px-2 py-0.5 rounded font-semibold text-[11px]">uploads/</span>
+                            <span id="badgeRutaExportacion"
+                                class="font-mono bg-blue-50 text-blue-800 border border-blue-200 px-2 py-0.5 rounded font-semibold text-[11px]">uploads/</span>
                         </div>
                     </div>
 
                 </div>
 
                 <!-- Panel de Descargas Directas -->
-                <div id="panel-descargas" class="hidden mb-3 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg space-y-2">
+                <div id="panel-descargas"
+                    class="hidden mb-3 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg space-y-2">
                     <div class="flex flex-wrap items-center justify-between gap-2">
                         <span class="text-xs font-bold text-blue-900 flex items-center gap-1.5">
                             📦 <span>Archivos Listos para Descargar</span>
                         </span>
-                        <a id="btnDescargarZip" href="#" class="px-3 py-1.5 bg-blue-800 hover:bg-blue-900 text-white font-semibold rounded text-xs inline-flex items-center gap-1 shadow-sm transition">
+                        <a id="btnDescargarZip" href="#"
+                            class="px-3 py-1.5 bg-blue-800 hover:bg-blue-900 text-white font-semibold rounded text-xs inline-flex items-center gap-1 shadow-sm transition">
                             <span>⬇️</span> Descargar Todo (.ZIP)
                         </a>
                     </div>
@@ -225,14 +229,17 @@
     </div>
 
     <!-- Modal de Autenticación / Registro -->
-    <div id="modalAuth" class="hidden fixed inset-0 z-50 bg-gray-900/60 flex items-center justify-center p-4">
+    <div id="modalAuth" class="fixed inset-0 z-50 bg-slate-900/90 backdrop-blur-xl flex flex-col items-center justify-center p-4 overflow-y-auto">
+        <div class="text-center mb-5">
+            <p class="text-2xl font-extrabold text-white tracking-wide">CONSENSUS S.A.S.</p>
+            <p class="text-sm text-blue-200 mt-1">✨ Generador Inteligente de Actas</p>
+        </div>
         <div class="bg-white w-full max-w-md rounded-xl shadow-2xl overflow-hidden">
             <div class="bg-blue-900 px-6 py-4 flex justify-between items-center">
                 <div>
-                    <h2 class="text-lg font-bold text-white">Acceso de Consultores</h2>
-                    <p class="text-xs text-blue-200">Las actas se firmarán con tus datos corporativos.</p>
+                    <h2 class="text-lg font-bold text-white">🔒 Acceso de Consultores</h2>
+                    <p class="text-xs text-blue-200">Inicia sesión o regístrate para continuar. Las actas se firmarán con tus datos corporativos.</p>
                 </div>
-                <button type="button" data-cerrar-modal="modalAuth" class="text-blue-200 hover:text-white text-xl leading-none">&times;</button>
             </div>
             <div class="flex border-b border-gray-200">
                 <button type="button" id="tabLogin" class="flex-1 py-2.5 text-sm font-semibold">Iniciar Sesión</button>
@@ -241,7 +248,8 @@
 
             <form id="formLogin" class="p-6 space-y-3">
                 <div>
-                    <label for="login_email" class="block text-xs font-bold text-gray-600 mb-1">Correo corporativo</label>
+                    <label for="login_email" class="block text-xs font-bold text-gray-600 mb-1">Correo
+                        corporativo</label>
                     <input type="email" id="login_email" name="email" required autocomplete="username"
                         placeholder="usuario@consensussa.com"
                         class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
@@ -260,19 +268,23 @@
 
             <form id="formRegistro" class="hidden p-6 space-y-3">
                 <div>
-                    <label for="reg_email" class="block text-xs font-bold text-gray-600 mb-1">Correo corporativo <span class="text-red-500">*</span></label>
+                    <label for="reg_email" class="block text-xs font-bold text-gray-600 mb-1">Correo corporativo <span
+                            class="text-red-500">*</span></label>
                     <input type="email" id="reg_email" name="email" required autocomplete="username"
                         pattern=".+@consensussa\.com$" title="Debe ser un correo @consensussa.com"
                         placeholder="usuario@consensussa.com"
                         class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
                 </div>
                 <div>
-                    <label for="reg_password" class="block text-xs font-bold text-gray-600 mb-1">Contraseña (mín. 8 caracteres) <span class="text-red-500">*</span></label>
-                    <input type="password" id="reg_password" name="password" required minlength="8" autocomplete="new-password"
+                    <label for="reg_password" class="block text-xs font-bold text-gray-600 mb-1">Contraseña (mín. 8
+                        caracteres) <span class="text-red-500">*</span></label>
+                    <input type="password" id="reg_password" name="password" required minlength="8"
+                        autocomplete="new-password"
                         class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
                 </div>
                 <div>
-                    <label for="reg_nombre" class="block text-xs font-bold text-gray-600 mb-1">Nombre completo <span class="text-red-500">*</span></label>
+                    <label for="reg_nombre" class="block text-xs font-bold text-gray-600 mb-1">Nombre completo <span
+                            class="text-red-500">*</span></label>
                     <input type="text" id="reg_nombre" name="nombre_completo" required maxlength="120"
                         class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
                 </div>
@@ -288,8 +300,9 @@
                             class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
                     </div>
                     <div>
-                        <label for="reg_telefono" class="block text-xs font-bold text-gray-600 mb-1">Teléfono / Ext.</label>
-                        <input type="tel" id="reg_telefono" name="telefono_fijo" maxlength="40" value="+57 601 743 16 24"
+                        <label for="reg_telefono" class="block text-xs font-bold text-gray-600 mb-1">Teléfono /
+                            Ext.</label>
+                        <input type="tel" id="reg_telefono" name="telefono_fijo" maxlength="40" value="601 7431624"
                             class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
                     </div>
                 </div>
@@ -310,11 +323,13 @@
                     <h2 class="text-lg font-bold text-white">⚙️ Mi Perfil</h2>
                     <p id="lblPerfilEmail" class="text-xs text-blue-200"></p>
                 </div>
-                <button type="button" data-cerrar-modal="modalPerfil" class="text-blue-200 hover:text-white text-xl leading-none">&times;</button>
+                <button type="button" data-cerrar-modal="modalPerfil"
+                    class="text-blue-200 hover:text-white text-xl leading-none">&times;</button>
             </div>
             <form id="formPerfil" class="p-6 space-y-3">
                 <div>
-                    <label for="perfil_nombre" class="block text-xs font-bold text-gray-600 mb-1">Nombre completo</label>
+                    <label for="perfil_nombre" class="block text-xs font-bold text-gray-600 mb-1">Nombre
+                        completo</label>
                     <input type="text" id="perfil_nombre" name="nombre_completo" required maxlength="120"
                         class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
                 </div>
@@ -330,7 +345,8 @@
                             class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
                     </div>
                     <div>
-                        <label for="perfil_telefono" class="block text-xs font-bold text-gray-600 mb-1">Teléfono / Ext.</label>
+                        <label for="perfil_telefono" class="block text-xs font-bold text-gray-600 mb-1">Teléfono /
+                            Ext.</label>
                         <input type="tel" id="perfil_telefono" name="telefono_fijo" maxlength="40"
                             class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
                     </div>
@@ -374,7 +390,9 @@
 
         function aplicarUsuario(usuario) {
             usuarioActual = usuario;
-            document.getElementById('auth-anonimo').classList.toggle('hidden', !!usuario);
+            // Sin sesión la página queda bloqueada detrás del acceso obligatorio.
+            document.getElementById('appPrincipal').inert = !usuario;
+            document.getElementById('modalAuth').classList.toggle('hidden', !!usuario);
             document.getElementById('auth-usuario').classList.toggle('hidden', !usuario);
             if (usuario) {
                 document.getElementById('lblUsuarioNombre').textContent = usuario.nombre_completo;
@@ -407,7 +425,7 @@
                 document.getElementById('reg_nombre').value = respaldo.nombre_completo || '';
                 document.getElementById('reg_cargo').value = respaldo.cargo || 'Consultor SAP Business One';
                 document.getElementById('reg_celular').value = respaldo.celular || '';
-                document.getElementById('reg_telefono').value = respaldo.telefono_fijo || '+57 601 743 16 24';
+                document.getElementById('reg_telefono').value = respaldo.telefono_fijo || '601 7431624';
             }
             seleccionarPestanaAuth(respaldo ? 'login' : 'registro');
             abrirModal('modalAuth');
@@ -436,7 +454,6 @@
 
         document.getElementById('tabLogin').addEventListener('click', () => seleccionarPestanaAuth('login'));
         document.getElementById('tabRegistro').addEventListener('click', () => seleccionarPestanaAuth('registro'));
-        document.getElementById('btnAbrirAuth').addEventListener('click', abrirModalAuth);
 
         document.getElementById('formLogin').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -478,7 +495,7 @@
         });
 
         document.getElementById('btnCerrarSesion').addEventListener('click', async () => {
-            await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
+            await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => { });
             aplicarUsuario(null);
             abrirModalAuth();
         });

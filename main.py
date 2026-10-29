@@ -480,6 +480,7 @@ def llamar_gemini_con_fallback(client_gemini, contents, modelos_prioridad=None):
                 print(f"⚠️ Modelo '{model_name}' no disponible temporalmente ({err_str[:80]}...). Probando fallback...")
                 continue
             raise e
+    # pyrefly: ignore[bad-raise]
     raise ultimo_error
     
 # --- 2. RUTAS Y DESCARGAS ---
