@@ -21,10 +21,14 @@
                     consultoría e implementación.</p>
             </div>
             <div class="text-right space-y-2">
-                <div id="auth-anonimo">
+                <div id="auth-anonimo" class="flex justify-end gap-2">
                     <button type="button" id="btnAbrirAuth"
+                        class="px-4 py-2 bg-white border border-blue-900 hover:bg-blue-50 text-blue-900 font-semibold rounded-lg shadow-sm text-sm transition">
+                        🔑 Iniciar Sesión
+                    </button>
+                    <button type="button" id="btnAbrirRegistro"
                         class="px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white font-semibold rounded-lg shadow text-sm transition">
-                        🔑 Iniciar Sesión / Registro
+                        📝 Registrarme
                     </button>
                 </div>
                 <div id="auth-usuario" class="hidden">
@@ -48,6 +52,20 @@
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
             <!-- Formulario Izquierdo -->
             <div class="bg-white p-6 rounded-xl shadow-md border border-gray-100 space-y-5">
+                <div id="avisoSinSesion" class="hidden p-3 bg-amber-50 border border-amber-300 rounded-lg">
+                    <p class="text-sm font-bold text-amber-900">🔒 Inicia sesión para generar actas</p>
+                    <p class="text-xs text-amber-800 mt-1">Las actas y correos salen firmados con tus datos. Si es tu primera vez, crea tu cuenta con tu correo @consensussa.com.</p>
+                    <div class="flex flex-wrap gap-2 mt-2">
+                        <button type="button" data-abrir-auth="registro"
+                            class="px-3 py-1.5 bg-blue-900 hover:bg-blue-800 text-white font-semibold rounded text-xs shadow-sm">
+                            📝 Crear mi cuenta
+                        </button>
+                        <button type="button" data-abrir-auth="login"
+                            class="px-3 py-1.5 bg-white border border-blue-900 hover:bg-blue-50 text-blue-900 font-semibold rounded text-xs">
+                            🔑 Ya tengo cuenta
+                        </button>
+                    </div>
+                </div>
                 <form id="formActa" enctype="multipart/form-data" class="space-y-4">
                     <div>
                         <h2 class="text-base font-bold text-gray-700 mb-2">1. Tipo de Proceso</h2>
@@ -256,6 +274,10 @@
                     class="w-full py-2.5 bg-blue-900 hover:bg-blue-800 text-white font-bold rounded-lg shadow transition text-sm">
                     Ingresar
                 </button>
+                <p class="text-xs text-center text-gray-600 pt-1">
+                    ¿Primera vez o no tienes cuenta?
+                    <button type="button" data-ir-pestana="registro" class="font-bold text-blue-800 hover:underline">Regístrate aquí</button>
+                </p>
             </form>
 
             <form id="formRegistro" class="hidden p-6 space-y-3">
@@ -298,6 +320,10 @@
                     class="w-full py-2.5 bg-blue-900 hover:bg-blue-800 text-white font-bold rounded-lg shadow transition text-sm">
                     Crear cuenta
                 </button>
+                <p class="text-xs text-center text-gray-600 pt-1">
+                    ¿Ya tienes cuenta?
+                    <button type="button" data-ir-pestana="login" class="font-bold text-blue-800 hover:underline">Inicia sesión</button>
+                </p>
             </form>
         </div>
     </div>
@@ -376,6 +402,7 @@
             usuarioActual = usuario;
             document.getElementById('auth-anonimo').classList.toggle('hidden', !!usuario);
             document.getElementById('auth-usuario').classList.toggle('hidden', !usuario);
+            document.getElementById('avisoSinSesion').classList.toggle('hidden', !!usuario);
             if (usuario) {
                 document.getElementById('lblUsuarioNombre').textContent = usuario.nombre_completo;
                 document.getElementById('lblUsuarioCargo').textContent = usuario.cargo;
@@ -396,7 +423,7 @@
             tabInactiva.classList.remove(...activa); tabInactiva.classList.add(...inactiva);
         }
 
-        function abrirModalAuth() {
+        function abrirModalAuth(pestana) {
             mostrarError('errorLogin', '');
             mostrarError('errorRegistro', '');
             // Si /tmp se reinició (Vercel) y la cuenta ya no existe, el respaldo local precarga el registro.
@@ -409,7 +436,7 @@
                 document.getElementById('reg_celular').value = respaldo.celular || '';
                 document.getElementById('reg_telefono').value = respaldo.telefono_fijo || '+57 601 743 16 24';
             }
-            seleccionarPestanaAuth(respaldo ? 'login' : 'registro');
+            seleccionarPestanaAuth(pestana || (respaldo ? 'login' : 'registro'));
             abrirModal('modalAuth');
         }
 
@@ -436,13 +463,28 @@
 
         document.getElementById('tabLogin').addEventListener('click', () => seleccionarPestanaAuth('login'));
         document.getElementById('tabRegistro').addEventListener('click', () => seleccionarPestanaAuth('registro'));
-        document.getElementById('btnAbrirAuth').addEventListener('click', abrirModalAuth);
+        document.getElementById('btnAbrirAuth').addEventListener('click', () => abrirModalAuth('login'));
+        document.getElementById('btnAbrirRegistro').addEventListener('click', () => abrirModalAuth('registro'));
+        document.querySelectorAll('[data-abrir-auth]').forEach(btn => {
+            btn.addEventListener('click', () => abrirModalAuth(btn.dataset.abrirAuth));
+        });
+        document.querySelectorAll('[data-ir-pestana]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                // Lleva el correo escrito a la otra pestaña para no tener que repetirlo.
+                const correo = document.getElementById(btn.dataset.irPestana === 'registro' ? 'login_email' : 'reg_email').value;
+                document.getElementById(btn.dataset.irPestana === 'registro' ? 'reg_email' : 'login_email').value = correo;
+                seleccionarPestanaAuth(btn.dataset.irPestana);
+            });
+        });
 
         document.getElementById('formLogin').addEventListener('submit', async (e) => {
             e.preventDefault();
             if (await enviarFormularioAuth('/api/auth/login', e.target, 'errorLogin')) {
                 e.target.reset();
                 cerrarModal('modalAuth');
+            } else {
+                mostrarError('errorLogin', document.getElementById('errorLogin').textContent +
+                    ' Si aún no te has registrado (o tu cuenta se reinició), usa "Regístrate aquí".');
             }
         });
 
