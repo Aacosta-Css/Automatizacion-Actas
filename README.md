@@ -37,13 +37,18 @@ El script activará el entorno virtual `.venv` (si existe), iniciará el servido
    ```bash
    cp .env.example .env
    ```
-   Dentro de `.env` puedes configurar la clave y opcionalmente los datos del consultor:
+   Dentro de `.env` configura la clave de Gemini y la clave de sesión:
    ```env
    GEMINI_API_KEY=tu_clave_de_gemini_aqui
    GEMINI_MODEL=gemini-3.6-flash
-   CONSULTOR_NOMBRE=Alexander Acosta Beltrán
-   CONSULTOR_EMAIL=aacosta@consensussa.com
+   SESSION_SECRET=clave_aleatoria_larga
    ```
+   Los datos de firma ya no se configuran aquí: cada consultor se registra en la app
+   (botón **🔑 Iniciar Sesión / Registro**) con su correo `@consensussa.com`, nombre, cargo y
+   celular, y las actas (.html y .eml) salen firmadas con sus datos y con su correo como remitente.
+   Los usuarios se guardan en `users.db` (SQLite) junto a la app, o en `/tmp/users.db` en Vercel.
+   En Vercel `/tmp` es efímero: la sesión activa sigue funcionando (la cookie firmada contiene el
+   perfil), pero tras un reinicio puede ser necesario volver a registrarse.
 
 4. **Iniciar el servidor:**
    ```bash

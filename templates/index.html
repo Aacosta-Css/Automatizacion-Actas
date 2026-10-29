@@ -20,8 +20,28 @@
                 <p class="text-gray-600 mt-1">Transforma notas, audios o registros en actas estandarizadas de
                     consultoría e implementación.</p>
             </div>
-            <div class="text-right text-xs text-gray-400">
-                Consensus S.A.S. | SAP Partner Gold
+            <div class="text-right space-y-2">
+                <div id="auth-anonimo">
+                    <button type="button" id="btnAbrirAuth"
+                        class="px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white font-semibold rounded-lg shadow text-sm transition">
+                        🔑 Iniciar Sesión / Registro
+                    </button>
+                </div>
+                <div id="auth-usuario" class="hidden">
+                    <p class="text-sm font-semibold text-blue-900">👤 <span id="lblUsuarioNombre"></span>
+                        <span class="font-normal text-gray-500">(<span id="lblUsuarioCargo"></span>)</span></p>
+                    <div class="flex justify-end gap-2 mt-1">
+                        <button type="button" id="btnAbrirPerfil"
+                            class="px-3 py-1 bg-white border border-gray-300 hover:bg-gray-50 rounded text-xs font-medium text-blue-800">
+                            ⚙️ Mi Perfil
+                        </button>
+                        <button type="button" id="btnCerrarSesion"
+                            class="px-3 py-1 bg-white border border-gray-300 hover:bg-gray-50 rounded text-xs font-medium text-red-700">
+                            Cerrar Sesión
+                        </button>
+                    </div>
+                </div>
+                <div class="text-xs text-gray-400">Consensus S.A.S. | SAP Partner Gold</div>
             </div>
         </header>
 
@@ -203,6 +223,279 @@
             </div>
         </div>
     </div>
+
+    <!-- Modal de Autenticación / Registro -->
+    <div id="modalAuth" class="hidden fixed inset-0 z-50 bg-gray-900/60 flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-md rounded-xl shadow-2xl overflow-hidden">
+            <div class="bg-blue-900 px-6 py-4 flex justify-between items-center">
+                <div>
+                    <h2 class="text-lg font-bold text-white">Acceso de Consultores</h2>
+                    <p class="text-xs text-blue-200">Las actas se firmarán con tus datos corporativos.</p>
+                </div>
+                <button type="button" data-cerrar-modal="modalAuth" class="text-blue-200 hover:text-white text-xl leading-none">&times;</button>
+            </div>
+            <div class="flex border-b border-gray-200">
+                <button type="button" id="tabLogin" class="flex-1 py-2.5 text-sm font-semibold">Iniciar Sesión</button>
+                <button type="button" id="tabRegistro" class="flex-1 py-2.5 text-sm font-semibold">Registrarse</button>
+            </div>
+
+            <form id="formLogin" class="p-6 space-y-3">
+                <div>
+                    <label for="login_email" class="block text-xs font-bold text-gray-600 mb-1">Correo corporativo</label>
+                    <input type="email" id="login_email" name="email" required autocomplete="username"
+                        placeholder="usuario@consensussa.com"
+                        class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label for="login_password" class="block text-xs font-bold text-gray-600 mb-1">Contraseña</label>
+                    <input type="password" id="login_password" name="password" required autocomplete="current-password"
+                        class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                </div>
+                <p id="errorLogin" class="text-xs text-red-600 font-medium hidden"></p>
+                <button type="submit"
+                    class="w-full py-2.5 bg-blue-900 hover:bg-blue-800 text-white font-bold rounded-lg shadow transition text-sm">
+                    Ingresar
+                </button>
+            </form>
+
+            <form id="formRegistro" class="hidden p-6 space-y-3">
+                <div>
+                    <label for="reg_email" class="block text-xs font-bold text-gray-600 mb-1">Correo corporativo <span class="text-red-500">*</span></label>
+                    <input type="email" id="reg_email" name="email" required autocomplete="username"
+                        pattern=".+@consensussa\.com$" title="Debe ser un correo @consensussa.com"
+                        placeholder="usuario@consensussa.com"
+                        class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label for="reg_password" class="block text-xs font-bold text-gray-600 mb-1">Contraseña (mín. 8 caracteres) <span class="text-red-500">*</span></label>
+                    <input type="password" id="reg_password" name="password" required minlength="8" autocomplete="new-password"
+                        class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label for="reg_nombre" class="block text-xs font-bold text-gray-600 mb-1">Nombre completo <span class="text-red-500">*</span></label>
+                    <input type="text" id="reg_nombre" name="nombre_completo" required maxlength="120"
+                        class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label for="reg_cargo" class="block text-xs font-bold text-gray-600 mb-1">Cargo</label>
+                    <input type="text" id="reg_cargo" name="cargo" maxlength="120" value="Consultor SAP Business One"
+                        class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label for="reg_celular" class="block text-xs font-bold text-gray-600 mb-1">Celular</label>
+                        <input type="tel" id="reg_celular" name="celular" maxlength="40" placeholder="Ej: 3001234567"
+                            class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label for="reg_telefono" class="block text-xs font-bold text-gray-600 mb-1">Teléfono / Ext.</label>
+                        <input type="tel" id="reg_telefono" name="telefono_fijo" maxlength="40" value="+57 601 743 16 24"
+                            class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                    </div>
+                </div>
+                <p id="errorRegistro" class="text-xs text-red-600 font-medium hidden"></p>
+                <button type="submit"
+                    class="w-full py-2.5 bg-blue-900 hover:bg-blue-800 text-white font-bold rounded-lg shadow transition text-sm">
+                    Crear cuenta
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal de Edición de Perfil -->
+    <div id="modalPerfil" class="hidden fixed inset-0 z-50 bg-gray-900/60 flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-md rounded-xl shadow-2xl overflow-hidden">
+            <div class="bg-blue-900 px-6 py-4 flex justify-between items-center">
+                <div>
+                    <h2 class="text-lg font-bold text-white">⚙️ Mi Perfil</h2>
+                    <p id="lblPerfilEmail" class="text-xs text-blue-200"></p>
+                </div>
+                <button type="button" data-cerrar-modal="modalPerfil" class="text-blue-200 hover:text-white text-xl leading-none">&times;</button>
+            </div>
+            <form id="formPerfil" class="p-6 space-y-3">
+                <div>
+                    <label for="perfil_nombre" class="block text-xs font-bold text-gray-600 mb-1">Nombre completo</label>
+                    <input type="text" id="perfil_nombre" name="nombre_completo" required maxlength="120"
+                        class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label for="perfil_cargo" class="block text-xs font-bold text-gray-600 mb-1">Cargo</label>
+                    <input type="text" id="perfil_cargo" name="cargo" maxlength="120"
+                        class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label for="perfil_celular" class="block text-xs font-bold text-gray-600 mb-1">Celular</label>
+                        <input type="tel" id="perfil_celular" name="celular" maxlength="40"
+                            class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label for="perfil_telefono" class="block text-xs font-bold text-gray-600 mb-1">Teléfono / Ext.</label>
+                        <input type="tel" id="perfil_telefono" name="telefono_fijo" maxlength="40"
+                            class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                    </div>
+                </div>
+                <p id="mensajePerfil" class="text-xs font-medium hidden"></p>
+                <button type="submit"
+                    class="w-full py-2.5 bg-blue-900 hover:bg-blue-800 text-white font-bold rounded-lg shadow transition text-sm">
+                    Guardar cambios
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // --- Autenticación de consultores ---
+        const CLAVE_PERFIL_LOCAL = 'consensus_perfil_consultor';
+        let usuarioActual = null;
+
+        function abrirModal(id) { document.getElementById(id).classList.remove('hidden'); }
+        function cerrarModal(id) { document.getElementById(id).classList.add('hidden'); }
+        document.querySelectorAll('[data-cerrar-modal]').forEach(btn => {
+            btn.addEventListener('click', () => cerrarModal(btn.dataset.cerrarModal));
+        });
+
+        function guardarPerfilLocal(perfil) {
+            try {
+                if (perfil) localStorage.setItem(CLAVE_PERFIL_LOCAL, JSON.stringify(perfil));
+                else localStorage.removeItem(CLAVE_PERFIL_LOCAL);
+            } catch (e) { /* almacenamiento no disponible */ }
+        }
+
+        function leerPerfilLocal() {
+            try { return JSON.parse(localStorage.getItem(CLAVE_PERFIL_LOCAL) || 'null'); } catch (e) { return null; }
+        }
+
+        function mostrarError(id, texto) {
+            const el = document.getElementById(id);
+            el.textContent = texto;
+            el.classList.toggle('hidden', !texto);
+        }
+
+        function aplicarUsuario(usuario) {
+            usuarioActual = usuario;
+            document.getElementById('auth-anonimo').classList.toggle('hidden', !!usuario);
+            document.getElementById('auth-usuario').classList.toggle('hidden', !usuario);
+            if (usuario) {
+                document.getElementById('lblUsuarioNombre').textContent = usuario.nombre_completo;
+                document.getElementById('lblUsuarioCargo').textContent = usuario.cargo;
+                guardarPerfilLocal(usuario);
+            }
+        }
+
+        function seleccionarPestanaAuth(pestana) {
+            const esLogin = pestana === 'login';
+            document.getElementById('formLogin').classList.toggle('hidden', !esLogin);
+            document.getElementById('formRegistro').classList.toggle('hidden', esLogin);
+            const activa = ['text-blue-900', 'border-b-2', 'border-blue-900'];
+            const inactiva = ['text-gray-400'];
+            const [tabActiva, tabInactiva] = esLogin
+                ? [document.getElementById('tabLogin'), document.getElementById('tabRegistro')]
+                : [document.getElementById('tabRegistro'), document.getElementById('tabLogin')];
+            tabActiva.classList.add(...activa); tabActiva.classList.remove(...inactiva);
+            tabInactiva.classList.remove(...activa); tabInactiva.classList.add(...inactiva);
+        }
+
+        function abrirModalAuth() {
+            mostrarError('errorLogin', '');
+            mostrarError('errorRegistro', '');
+            // Si /tmp se reinició (Vercel) y la cuenta ya no existe, el respaldo local precarga el registro.
+            const respaldo = leerPerfilLocal();
+            if (respaldo) {
+                document.getElementById('login_email').value = respaldo.email || '';
+                document.getElementById('reg_email').value = respaldo.email || '';
+                document.getElementById('reg_nombre').value = respaldo.nombre_completo || '';
+                document.getElementById('reg_cargo').value = respaldo.cargo || 'Consultor SAP Business One';
+                document.getElementById('reg_celular').value = respaldo.celular || '';
+                document.getElementById('reg_telefono').value = respaldo.telefono_fijo || '+57 601 743 16 24';
+            }
+            seleccionarPestanaAuth(respaldo ? 'login' : 'registro');
+            abrirModal('modalAuth');
+        }
+
+        async function enviarFormularioAuth(url, form, idError, metodo = 'POST') {
+            mostrarError(idError, '');
+            const boton = form.querySelector('button[type="submit"]');
+            boton.disabled = true;
+            try {
+                const response = await fetch(url, { method: metodo, body: new FormData(form), credentials: 'same-origin' });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok || !data.success) {
+                    const detalle = data.error || (Array.isArray(data.detail) ? 'Completa los campos obligatorios.' : data.detail) || `Error HTTP ${response.status}`;
+                    throw new Error(detalle);
+                }
+                aplicarUsuario(data.usuario);
+                return true;
+            } catch (err) {
+                mostrarError(idError, `❌ ${err.message}`);
+                return false;
+            } finally {
+                boton.disabled = false;
+            }
+        }
+
+        document.getElementById('tabLogin').addEventListener('click', () => seleccionarPestanaAuth('login'));
+        document.getElementById('tabRegistro').addEventListener('click', () => seleccionarPestanaAuth('registro'));
+        document.getElementById('btnAbrirAuth').addEventListener('click', abrirModalAuth);
+
+        document.getElementById('formLogin').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (await enviarFormularioAuth('/api/auth/login', e.target, 'errorLogin')) {
+                e.target.reset();
+                cerrarModal('modalAuth');
+            }
+        });
+
+        document.getElementById('formRegistro').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (await enviarFormularioAuth('/api/auth/register', e.target, 'errorRegistro')) {
+                document.getElementById('reg_password').value = '';
+                cerrarModal('modalAuth');
+            }
+        });
+
+        document.getElementById('btnAbrirPerfil').addEventListener('click', () => {
+            if (!usuarioActual) return;
+            document.getElementById('lblPerfilEmail').textContent = usuarioActual.email;
+            document.getElementById('perfil_nombre').value = usuarioActual.nombre_completo || '';
+            document.getElementById('perfil_cargo').value = usuarioActual.cargo || '';
+            document.getElementById('perfil_celular').value = usuarioActual.celular || '';
+            document.getElementById('perfil_telefono').value = usuarioActual.telefono_fijo || '';
+            mostrarError('mensajePerfil', '');
+            abrirModal('modalPerfil');
+        });
+
+        document.getElementById('formPerfil').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const mensaje = document.getElementById('mensajePerfil');
+            mensaje.classList.remove('text-green-700');
+            mensaje.classList.add('text-red-600');
+            if (await enviarFormularioAuth('/api/auth/profile', e.target, 'mensajePerfil', 'PUT')) {
+                mensaje.classList.remove('text-red-600');
+                mensaje.classList.add('text-green-700');
+                mostrarError('mensajePerfil', '✅ Perfil actualizado. Las próximas actas usarán estos datos.');
+            }
+        });
+
+        document.getElementById('btnCerrarSesion').addEventListener('click', async () => {
+            await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
+            aplicarUsuario(null);
+            abrirModalAuth();
+        });
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const response = await fetch('/api/auth/me', { credentials: 'same-origin' });
+                const data = await response.json().catch(() => ({}));
+                if (response.ok && data.success) {
+                    aplicarUsuario(data.usuario);
+                    return;
+                }
+            } catch (err) { /* servidor no disponible */ }
+            aplicarUsuario(null);
+            abrirModalAuth();
+        });
+    </script>
 
     <script>
         const quill = new Quill('#editor-container', {
@@ -462,8 +755,12 @@
 
             try {
                 if (promesaGuardadoAudio) await promesaGuardadoAudio;
-                const response = await fetch('/procesar-acta/', { method: 'POST', body: formData });
+                const response = await fetch('/procesar-acta/', { method: 'POST', body: formData, credentials: 'same-origin' });
                 const data = await response.json();
+                if (response.status === 401) {
+                    aplicarUsuario(null);
+                    abrirModalAuth();
+                }
                 if (data.success) {
                     let contenidoMarkdown = (data.acta_borrador || "").trim();
                     // Limpiar delimitadores markdown envolventes si Gemini los incluyó

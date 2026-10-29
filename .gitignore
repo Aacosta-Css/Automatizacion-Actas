@@ -17,3 +17,7 @@ __pycache__/
 .pytest_cache/
 venv/
 .venv/
+
+# Base de datos local de usuarios y clave de sesión
+users.db
+.session_secret
