@@ -5,6 +5,8 @@ description: Genera las actas mensuales de implementación SAP Business One de C
 
 # Actas de Implementación desde Excel (relación mensual por cliente)
 
+> `<carpeta del skill>` es el directorio de este skill (Claude Code lo muestra como *Base directory for this skill* al cargarlo). Los archivos se generan en `uploads/` dentro de la carpeta de trabajo actual.
+
 Replica el flujo "Acta de Implementación (Excel)" de la app (`main.py`, `prompt_implementacion`),
 ejecutado directamente por Claude: tú procesas los datos y redactas, el script genera los archivos.
 No pidas aprobación entre clientes: procesa el lote completo y entrega el resumen al final.
@@ -13,14 +15,14 @@ No pidas aprobación entre clientes: procesa el lote completo y entrega el resum
 
 - **Archivo Excel** (.xlsx / .xls). Nunca lo modifiques.
 - **Mes y año** a procesar (obligatorios; si faltan, pregúntalos).
-- **Firma del consultor** (nombre, cargo, teléfono fijo, celular, correo): del usuario, o de `users.db` por su correo:
+- **Firma del consultor** (nombre, cargo, teléfono fijo, celular, correo): del usuario, o de `users.db` (solo en la carpeta del proyecto de la app) por su correo:
   `python -c "import sqlite3; print(sqlite3.connect('users.db').execute('SELECT nombre_completo, cargo, telefono_fijo, celular, email FROM users WHERE email=?', ('CORREO',)).fetchone())"`.
   Si no están, pregúntalos. Por defecto: cargo "Consultor SAP Business One", teléfono "+57 601 743 16 24".
 
 ## 2. Lee el Excel
 
 ```
-python .claude/skills/acta-implementacion-excel/scripts/leer_excel.py "<archivo.xlsx>" <Mes> <Año>
+python "<carpeta del skill>/scripts/leer_excel.py" "<archivo.xlsx>" <Mes> <Año>
 ```
 
 Devuelve cada hoja como TSV, ya filtrada por la columna de fecha de inicio cuando es identificable.
@@ -50,10 +52,10 @@ Copia [plantilla.html](plantilla.html) y reemplaza solo los `{{...}}`. Reglas:
 - **Nombres**: `{cliente_seguro}_Reporte_{Mes}_{Año}.html` y `{cliente_seguro}_Correo_{Mes}_{Año}.eml` (solo letras, números, `-` y `_`).
 
 ```
-python .claude/skills/acta-implementacion-excel/scripts/crear_eml.py --html <html_del_scratchpad> --to "<To>" --subject "<Asunto>" --from-nombre "<Nombre consultor>" --from-email "<correo consultor>" --carpeta "uploads/<Mes>_<Año>" --nombre-html "<archivo>.html" --nombre-eml "<archivo>.eml"
+python "<carpeta del skill>/scripts/crear_eml.py" --html <html_del_scratchpad> --to "<To>" --subject "<Asunto>" --from-nombre "<Nombre consultor>" --from-email "<correo consultor>" --carpeta "uploads/<Mes>_<Año>" --nombre-html "<archivo>.html" --nombre-eml "<archivo>.eml"
 ```
 
-El script incrusta la firma (`templates/Imagen1.jpg`), marca `X-Unsent: 1` (borrador en Outlook)
+El script incrusta la firma (`recursos/firma_consensus.jpg` del skill), marca `X-Unsent: 1` (borrador en Outlook)
 y no sobrescribe archivos existentes.
 
 ## 6. Resumen final

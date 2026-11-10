@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Confirmación de Consultoría SAP Business One</title>
+</head>
+<body style="margin: 0; padding: 20px; background-color: #f4f6f9; font-family: Arial, Helvetica, sans-serif; color: #333333;">
+  <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 750px; background-color: #ffffff; border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden;">
+    <tr>
+      <td style="background-color: #003366; padding: 20px; text-align: center; color: #ffffff;">
+        <h2 style="margin: 0; font-size: 20px; font-weight: normal; letter-spacing: 0.5px;">CONSENSUS S.A.S.</h2>
+        <p style="margin: 5px 0 0 0; font-size: 13px; color: #d0e1fd;">Confirmación de Consultoría Posventa - SAP Business One</p>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding: 25px 30px;">
+        <p style="margin: 0 0 12px 0; font-size: 14px; line-height: 1.5;">Buen día, <strong>{{CLIENTE}}</strong>.</p>
+        <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.5;">Mediante el presente, me permito confirmar la consultoría prestada, en la cual se llevaron a cabo las siguientes actividades:</p>
+
+        <div style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 18px 20px; margin-bottom: 25px;">
+          <h3 style="margin: 0 0 12px 0; font-size: 15px; color: #003366; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px;">Actividades Realizadas</h3>
+          <ol style="margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.7; color: #2d3748;">
+            {{ACTIVIDADES: un <li style="margin-bottom: 8px;">Descripción técnica</li> por actividad}}
+          </ol>
+        </div>
+
+        <div style="background-color: #f8f9fa; border-left: 4px solid #003366; padding: 15px 20px; margin-bottom: 25px; border-radius: 0 4px 4px 0;">
+          <h3 style="margin: 0 0 10px 0; font-size: 14px; color: #003366; text-transform: uppercase; letter-spacing: 0.5px;">Detalles de la Sesión</h3>
+          <p style="margin: 4px 0; font-size: 13px;"><strong>Responsable de la actividad:</strong> {{RESPONSABLE}}</p>
+          <p style="margin: 4px 0; font-size: 13px;"><strong>Fecha de ejecución:</strong> {{FECHA}}</p>
+          <p style="margin: 4px 0; font-size: 13px;"><strong>Tiempo total ejecutado:</strong> {{HORAS}} horas</p>
+          <p style="margin: 4px 0; font-size: 13px;"><strong>Observaciones:</strong> {{OBSERVACIONES o Ninguna}}</p>
+        </div>
+
+        <p style="margin: 0 0 12px 0; font-size: 13px; line-height: 1.5; color: #4a5568;">
+          Lo anterior con la finalidad de confirmar los procesos realizados durante la sesión remota y su aprobación mediante la respuesta de este correo.
+        </p>
+        <p style="margin: 0 0 25px 0; font-size: 13px; line-height: 1.5; color: #4a5568;">
+          Quedo atento ante su confirmación de aprobación por este medio.
+        </p>
+
+        <div style="border-top: 1px solid #e0e0e0; padding-top: 20px; font-size: 13px; color: #333333; line-height: 1.4;">
+          <p style="margin: 0 0 5px 0;">Cordialmente,</p>
+          <p style="margin: 0; font-weight: bold; color: #003366; font-size: 14px;">{{CONSULTOR_NOMBRE}}</p>
+          <p style="margin: 0;">{{CONSULTOR_CARGO}}</p>
+          <p style="margin: 0;">Tel: {{CONSULTOR_TEL}}</p>
+          <p style="margin: 0;">Móvil: {{CONSULTOR_CELULAR}}</p>
+          <p style="margin: 0;">Correo: {{CONSULTOR_EMAIL}}</p>
+          <p style="margin: 5px 0 0 0; font-weight: bold; color: #003366;">CONSENSUS S.A.S.</p>
+          <img src="cid:imagen_firma" alt="Consensus S.A.S." width="589" style="display: block; width: 100%; max-width: 589px; height: auto; margin-top: 10px;" />
+        </div>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

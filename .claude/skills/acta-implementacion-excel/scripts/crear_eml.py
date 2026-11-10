@@ -51,7 +51,8 @@ def main() -> None:
     p.add_argument("--carpeta", required=True, help="Carpeta de salida, p. ej. uploads/Consultoria_Octubre_2026")
     p.add_argument("--nombre-html", required=True)
     p.add_argument("--nombre-eml", required=True)
-    p.add_argument("--firma", default="templates/Imagen1.jpg", help="Imagen de firma corporativa")
+    p.add_argument("--firma", default=str(Path(__file__).resolve().parent.parent / "recursos" / "firma_consensus.jpg"),
+                   help="Imagen de firma corporativa (por defecto, la incluida en el skill)")
     a = p.parse_args()
 
     contenido_html = Path(a.html).read_text(encoding="utf-8")

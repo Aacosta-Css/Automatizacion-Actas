@@ -5,6 +5,8 @@ description: Genera el acta de consultoría posventa SAP Business One de Consens
 
 # Acta de Consultoría Posventa (SAP Business One)
 
+> `<carpeta del skill>` es el directorio de este skill (Claude Code lo muestra como *Base directory for this skill* al cargarlo). Los archivos se generan en `uploads/` dentro de la carpeta de trabajo actual.
+
 Replica el flujo "Consultoría (Posventa)" de la app (`main.py`, `prompt_consultoria`), pero
 ejecutado directamente por Claude: tú redactas el acta y el script genera los archivos.
 
@@ -20,7 +22,7 @@ ejecutado directamente por Claude: tú redactas el acta y el script genera los a
 
 **Firma del consultor** (nombre, cargo, teléfono fijo, celular, correo):
 1. Si el usuario los da, úsalos.
-2. Si no, búscalos por su correo en `users.db` (base de la app):
+2. Si no, búscalos por su correo en `users.db` (base de la app; solo existe si trabajas en la carpeta del proyecto):
    `python -c "import sqlite3; print(sqlite3.connect('users.db').execute('SELECT nombre_completo, cargo, telefono_fijo, celular, email FROM users WHERE email=?', ('CORREO',)).fetchone())"`
 3. Si tampoco están, pregúntalos. Valores por defecto: cargo "Consultor SAP Business One", teléfono "+57 601 743 16 24".
 Nunca firmes con datos de otro consultor.
@@ -51,10 +53,10 @@ No cambies estructura, estilos, colores ni el orden de secciones. Conserva
 Ejecuta desde la raíz del proyecto:
 
 ```
-python .claude/skills/acta-consultoria-posventa/scripts/crear_eml.py --html <html_del_scratchpad> --to "<To>" --subject "<Asunto>" --from-nombre "<Nombre consultor>" --from-email "<correo consultor>" --carpeta "uploads/Consultoria_<Mes>_<Año>" --nombre-html "<archivo>.html" --nombre-eml "<archivo>.eml"
+python "<carpeta del skill>/scripts/crear_eml.py" --html <html_del_scratchpad> --to "<To>" --subject "<Asunto>" --from-nombre "<Nombre consultor>" --from-email "<correo consultor>" --carpeta "uploads/Consultoria_<Mes>_<Año>" --nombre-html "<archivo>.html" --nombre-eml "<archivo>.eml"
 ```
 
-El script incrusta la imagen de firma (`templates/Imagen1.jpg`) en el .html, la adjunta como CID
+El script incrusta la imagen de firma (`recursos/firma_consensus.jpg` del skill) en el .html, la adjunta como CID
 en el .eml, marca `X-Unsent: 1` y no sobrescribe actas anteriores (agrega `_2`, `_3`…).
 
 ## 5. Responde al usuario
