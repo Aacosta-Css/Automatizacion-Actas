@@ -1,0 +1,1048 @@
+<title>Generador de Actas Consensus</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/quill/1.3.7/quill.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>__QUILL_CSS__</style>
+<style>
+    /* Diseño SAP Fiori Horizon aprobado para la app: degradado azul, barra transparente, tarjetas blancas.
+       Paleta de botones y selección de SAP Business One web (Belize). Aspecto único en claro y oscuro. */
+    :root {
+        --sap-boton: #5496cd; --sap-boton-hover: #427cac; --sap-claro: #8ec4f1; --sap-barra: #3f5161;
+        --tinta: #1d2d3e; --tinta-suave: #556b82; --tarjeta: #ffffff; --borde: #d5dde6;
+        --fondo: linear-gradient(180deg, #12324f 0%, #2f5d86 30%, #7fa6c8 70%, #b9d2e6 100%);
+        color-scheme: light;
+    }
+    body { background: #2f5d86; background-image: var(--fondo); background-attachment: fixed; color: var(--tinta);
+           font-family: "72", "Segoe UI", "Helvetica Neue", Arial, sans-serif; min-height: 100%; }
+    body ::selection { background: var(--sap-claro); color: var(--tinta); }
+    body { accent-color: var(--sap-boton); }
+    .gutter { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+    .fx-shell { display: flex; justify-content: space-between; align-items: center; gap: 1rem; min-height: 3.25rem; color: #fff; padding-block: .4rem; }
+    .fx-shell-izq, .fx-shell-der, .fx-usuario { display: flex; align-items: center; gap: .9rem; min-width: 0; }
+    .fx-logo { height: 1.9rem; width: auto; }
+    .fx-titulo { font-weight: 700; font-size: 1.05rem; white-space: nowrap; }
+    .fx-usuario-texto { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.1; }
+    .fx-usuario-nombre { font-weight: 700; font-size: .85rem; white-space: nowrap; }
+    .fx-usuario-cargo { font-size: .7rem; opacity: .8; }
+    .fx-shell-btn { font-size: .75rem; padding: .3rem .6rem; border-radius: .25rem; border: 1px solid rgba(255,255,255,.35); color: #fff; white-space: nowrap; }
+    .fx-shell-btn:hover { background: rgba(255,255,255,.15); }
+    .fx-avatar { width: 2.1rem; height: 2.1rem; border-radius: 50%; object-fit: cover; background: var(--sap-boton); }
+    .fx-tabs { display: flex; gap: 2rem; overflow-x: auto; color: #fff; border-bottom: 1px solid rgba(255,255,255,.15); }
+    .fx-tab { padding: .8rem 0 .6rem; font-size: 1rem; white-space: nowrap; border-bottom: 3px solid transparent; color: rgba(255,255,255,.88); }
+    .fx-tab:hover { color: #fff; }
+    .fx-tab.activo { color: #fff; border-bottom-color: #fff; font-weight: 600; }
+    .fx-grupo { font-size: 1.05rem; font-weight: 600; margin: 1.5rem 0 .75rem; color: #fff; text-wrap: balance; }
+    .fx-grupo span { display: block; font-size: .8rem; font-weight: 400; margin-top: .15rem; color: #d6e6f5; }
+    .tarjeta { background: var(--tarjeta); border-radius: .5rem; box-shadow: 0 0 2px rgba(34,53,72,.2), 0 4px 10px rgba(34,53,72,.18); padding: 1.5rem; min-width: 0; }
+    .tarjeta h2 { color: var(--tinta); font-weight: 600; font-size: 1rem; margin-bottom: .5rem; }
+    .etiqueta { display: block; font-size: .75rem; font-weight: 700; color: #4b5563; margin-bottom: .25rem; }
+    .campo { width: 100%; padding: .5rem; border: 1px solid #8396a8; border-radius: .25rem; font-size: .875rem; background: #fff; color: var(--tinta); }
+    .campo:focus { outline: none; border-color: var(--sap-boton); box-shadow: 0 0 0 2px var(--sap-claro); }
+    .boton { background: var(--sap-boton); color: #fff; font-weight: 700; border-radius: .375rem; padding: .75rem 1rem; transition: background .15s; }
+    .boton:hover { background: var(--sap-boton-hover); }
+    .boton:disabled { opacity: .55; cursor: not-allowed; }
+    .boton-sec { background: #fff; border: 1px solid #c3ccd6; color: var(--sap-boton-hover); font-weight: 600; border-radius: .25rem; padding: .3rem .6rem; font-size: .72rem; }
+    .boton-sec:hover { background: #f1f5f9; }
+    button:focus-visible, .campo:focus-visible, a:focus-visible { outline: 2px solid var(--sap-claro); outline-offset: 2px; }
+    .archivo::file-selector-button { margin-right: 1rem; padding: .5rem 1rem; border-radius: .375rem; border: 0; font-size: .75rem; font-weight: 600; background: #eff6ff; color: var(--sap-boton-hover); }
+    .ql-toolbar.ql-snow, .ql-container.ql-snow { border-color: #e5e7eb; }
+    #editor-container { min-height: 420px; }
+    #editor-container table { border-collapse: collapse; font-size: .75rem; }
+    #editor-container td, #editor-container th { border: 1px solid #e5e7eb; padding: 2px 6px; }
+    .modal { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow-y: auto;
+             padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
+    .modal-fondo-acceso { background: rgba(15, 23, 42, .9); backdrop-filter: blur(24px); }
+    .modal-fondo { background: rgba(15, 23, 42, .6); }
+    .modal-caja { background: #fff; width: 100%; max-width: 28rem; border-radius: .75rem; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0,0,0,.4); }
+    .modal-cabecera { background: var(--sap-boton); padding: 1rem 1.5rem; color: #fff; display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+    .vista-previa { width: 100%; height: min(75vh, 900px); border: 0; background: #f4f6f9; }
+    .dictando { animation: latido 1.2s ease-in-out infinite; }
+    @keyframes latido { 50% { opacity: .55; } }
+    @media (prefers-reduced-motion: reduce) { .dictando { animation: none; } }
+    @media (max-width: 1024px) { .fx-usuario-texto { display: none; } }
+    @media (max-width: 860px) { .fx-titulo { display: none; } }
+    @media (max-width: 640px) { .fx-logo { height: 1.3rem; } .fx-tabs { gap: 1.2rem; } .tarjeta { padding: 1rem; } }
+</style>
+
+<div id="appPrincipal" inert>
+    <header class="fx-shell gutter">
+        <div class="fx-shell-izq">
+            <img class="fx-logo" src="__LOGO__" alt="Consensus S.A.S. · SAP Gold Partner · SAP Business One Premier Partner">
+            <span class="fx-titulo">Generador de Actas</span>
+        </div>
+        <div class="fx-shell-der">
+            <div class="fx-usuario">
+                <div class="fx-usuario-texto">
+                    <span id="lblUsuarioNombre" class="fx-usuario-nombre"></span>
+                    <span id="lblUsuarioCargo" class="fx-usuario-cargo"></span>
+                </div>
+                <button type="button" id="btnAbrirPerfil" class="fx-shell-btn">⚙️ Mi Perfil</button>
+                <img id="imgAvatar" class="fx-avatar" alt="" hidden>
+            </div>
+        </div>
+    </header>
+    <nav class="fx-tabs gutter" aria-label="Tipo de acta">
+        <button type="button" class="fx-tab" data-tipo="consultoria" id="tabConsultoria">Consultoría (Posventa)</button>
+        <button type="button" class="fx-tab" data-tipo="implementacion" id="tabImplementacion">Acta de Implementación (Excel)</button>
+    </nav>
+
+    <main class="max-w-7xl mx-auto gutter" style="padding-block: 0 2.5rem">
+        <h1 class="fx-grupo">✨ Generador Inteligente de Actas
+            <span>Transforma notas, dictados o registros en actas estandarizadas de consultoría e implementación, redactadas con Claude.</span>
+        </h1>
+        <div id="avisoSinClaude" class="hidden mb-4 p-3 rounded-lg bg-amber-50 border border-amber-300 text-amber-900 text-sm">
+            ⚠️ Para redactar actas abre este artefacto en claude.ai con tu cuenta de Consensus. Aquí no está disponible la conexión con Claude.
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <!-- Formulario -->
+            <section class="tarjeta">
+                <form id="formActa" class="space-y-4" novalidate>
+                    <div>
+                        <h2>1. Información del Cliente</h2>
+                        <div class="space-y-3">
+                            <div id="bloque-cliente" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label for="nombre_cliente" class="etiqueta">Nombre del Cliente <span class="text-red-500">*</span></label>
+                                    <input type="text" id="nombre_cliente" class="campo" placeholder="Ej: Industrias Acme S.A.">
+                                </div>
+                                <div>
+                                    <label for="responsable_cliente" class="etiqueta">Responsable (Cliente)</label>
+                                    <input type="text" id="responsable_cliente" class="campo" placeholder="Ej: Ana Pérez o ana@cliente.com">
+                                </div>
+                            </div>
+                            <p id="nota-cliente-excel" class="text-[11px] font-medium hidden" style="color: var(--sap-boton-hover)">
+                                ℹ️ En <b>Actas de Implementación</b>, los clientes y responsables se obtienen automáticamente del archivo Excel.
+                            </p>
+                            <div id="bloque-periodo-implementacion" class="hidden p-3 bg-blue-50/70 border border-blue-200 rounded-lg space-y-2">
+                                <span class="etiqueta" style="color: var(--tinta)">📅 Período de Ejecución a Procesar (Filtro Estricto)</span>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div>
+                                        <label for="mes_ejecucion" class="etiqueta">Mes</label>
+                                        <select id="mes_ejecucion" class="campo"></select>
+                                    </div>
+                                    <div>
+                                        <label for="anio_ejecucion" class="etiqueta">Año</label>
+                                        <input type="number" id="anio_ejecucion" min="2020" max="2035" class="campo">
+                                    </div>
+                                </div>
+                                <p class="text-[11px] text-amber-800 font-medium">⚠️ Solo se procesarán actividades cuya fecha de inicio sea de este mes y año.</p>
+                            </div>
+                            <div id="bloque-periodo-consultoria" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label for="fecha_ejecucion" class="etiqueta">Fecha de la Sesión</label>
+                                    <input type="date" id="fecha_ejecucion" class="campo">
+                                </div>
+                                <div>
+                                    <label for="horas_ejecutadas" class="etiqueta">Cantidad de Horas</label>
+                                    <input type="number" step="0.5" min="0" id="horas_ejecutadas" class="campo" placeholder="Ej: 4.5">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr class="border-gray-100">
+                    <div>
+                        <h2>2. Insumos para el Acta</h2>
+                        <div id="bloque-dictado" class="mb-3">
+                            <span class="etiqueta">🎙️ Dictado de la sesión</span>
+                            <div class="flex flex-wrap items-center gap-3">
+                                <button type="button" id="btnDictar" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg shadow text-sm">● Dictar</button>
+                                <span id="estadoDictado" class="text-xs text-gray-500 font-medium">Habla y el texto se agrega a la transcripción.</span>
+                            </div>
+                            <p id="parcialDictado" class="text-xs italic text-gray-500 mt-2 min-h-[1rem]"></p>
+                            <p id="sinDictado" class="hidden text-xs text-gray-500 mt-1">El dictado funciona en Chrome, Edge o la app de escritorio de Claude. También puedes pegar la transcripción de Teams abajo.</p>
+                            <label for="transcripcion" class="etiqueta mt-2">Transcripción de la sesión</label>
+                            <textarea id="transcripcion" rows="4" class="campo" placeholder="Aquí aparece lo que dictas, o pega la transcripción de la reunión..."></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="archivos" id="lblArchivos" class="etiqueta">📁 Archivos de Respaldo (.xlsx, .pdf, .docx, .txt, .csv, imágenes)</label>
+                            <input type="file" id="archivos" multiple class="archivo block w-full text-xs text-gray-500"
+                                accept=".xlsx,.xls,.pdf,.docx,.txt,.csv,.md,.json,.log,.sql,.png,.jpg,.jpeg,.webp">
+                            <p id="listaArchivos" class="text-[11px] text-gray-500 mt-1"></p>
+                        </div>
+                        <div>
+                            <label for="informacion_extra" class="etiqueta">✍️ Notas o Instrucciones Extras</label>
+                            <textarea id="informacion_extra" rows="3" class="campo" placeholder="Ingresa notas o indicaciones especiales..."></textarea>
+                        </div>
+                    </div>
+
+                    <div class="flex gap-2">
+                        <button type="submit" id="btnSubmit" class="boton flex-1">⚡ Elaborar Acta con Claude</button>
+                        <button type="button" id="btnDetener" class="boton-sec hidden">Detener</button>
+                    </div>
+                </form>
+            </section>
+
+            <!-- Resumen y archivos -->
+            <section class="tarjeta flex flex-col">
+                <div class="mb-3">
+                    <h2 class="mb-0">📄 Resumen de Generación y Archivos</h2>
+                    <div class="flex flex-wrap items-center gap-1.5 text-xs text-gray-500 mt-0.5">
+                        <span class="font-medium text-gray-600">📁 Carpeta del ZIP:</span>
+                        <span id="badgeCarpeta" class="font-mono bg-blue-50 border border-blue-200 px-2 py-0.5 rounded font-semibold text-[11px]" style="color: var(--sap-boton-hover)">—</span>
+                    </div>
+                </div>
+                <div id="panel-descargas" class="hidden mb-3 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg space-y-2">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <span class="text-xs font-bold" style="color: var(--tinta)">📦 Archivos Listos para Descargar</span>
+                        <button type="button" id="btnDescargarZip" class="px-3 py-1.5 text-white font-semibold rounded text-xs shadow-sm" style="background: var(--sap-boton)">⬇️ Descargar Todo (.ZIP)</button>
+                    </div>
+                    <div id="lista-archivos-descarga" class="text-xs space-y-1 pt-1.5 border-t border-blue-100"></div>
+                    <p class="text-[11px] text-gray-500">Cada correo se entrega dentro de un .ZIP junto con su .HTML. Descomprímelo y abre el .eml en Outlook: se abre como borrador listo para revisar y enviar.</p>
+                </div>
+                <div id="editor-container" class="flex-grow text-sm bg-white"></div>
+                <div id="estado-proceso" class="mt-3 text-center text-xs text-gray-600" aria-live="polite"></div>
+            </section>
+        </div>
+    </main>
+</div>
+
+<!-- Firma obligatoria (sustituye el login de la app: la cuenta de claude.ai identifica al consultor) -->
+<div id="modalPerfil" class="modal modal-fondo-acceso">
+    <div class="text-center mb-5">
+        <img src="__LOGO__" alt="Consensus S.A.S." style="height: 2.6rem; width: auto; max-width: 90vw; margin: 0 auto .5rem">
+        <p class="text-sm text-blue-200">✨ Generador Inteligente de Actas</p>
+    </div>
+    <div class="modal-caja">
+        <div class="modal-cabecera">
+            <div>
+                <h2 id="tituloPerfil" class="text-lg font-bold">🔒 Configura tu firma</h2>
+                <p id="subtituloPerfil" class="text-xs text-blue-50">Las actas y correos saldrán firmados con estos datos. Solo tú puedes verlos.</p>
+            </div>
+            <button type="button" id="btnCerrarPerfil" class="hidden text-xl leading-none" aria-label="Cerrar">&times;</button>
+        </div>
+        <form id="formPerfil" class="p-6 space-y-3">
+            <div>
+                <label for="perfil_nombre" class="etiqueta">Nombre completo <span class="text-red-500">*</span></label>
+                <input type="text" id="perfil_nombre" required maxlength="120" class="campo">
+            </div>
+            <div>
+                <label for="perfil_email" class="etiqueta">Correo corporativo (remitente del .eml) <span class="text-red-500">*</span></label>
+                <input type="email" id="perfil_email" required maxlength="120" class="campo" placeholder="usuario@consensussa.com">
+            </div>
+            <div>
+                <label for="perfil_cargo" class="etiqueta">Cargo</label>
+                <input type="text" id="perfil_cargo" maxlength="120" class="campo" value="Consultor SAP Business One">
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                    <label for="perfil_celular" class="etiqueta">Celular</label>
+                    <input type="tel" id="perfil_celular" maxlength="40" class="campo" placeholder="Ej: 3001234567">
+                </div>
+                <div>
+                    <label for="perfil_telefono" class="etiqueta">Teléfono / Ext.</label>
+                    <input type="tel" id="perfil_telefono" maxlength="40" class="campo" value="601 7431624">
+                </div>
+            </div>
+            <p id="mensajePerfil" class="text-xs font-medium hidden"></p>
+            <button type="submit" class="boton w-full">Guardar firma</button>
+        </form>
+    </div>
+</div>
+
+<!-- Vista previa del HTML generado -->
+<div id="modalVista" class="modal modal-fondo" hidden>
+    <div class="modal-caja" style="max-width: 860px">
+        <div class="modal-cabecera">
+            <h2 id="tituloVista" class="text-sm font-bold truncate"></h2>
+            <button type="button" id="btnCerrarVista" class="text-xl leading-none" aria-label="Cerrar">&times;</button>
+        </div>
+        <iframe id="iframeVista" class="vista-previa" sandbox="" title="Vista previa del acta"></iframe>
+    </div>
+</div>
+
+<script>
+const LOGO_URI = "__LOGO__";
+const FIRMA_B64 = "__FIRMA_B64__";
+const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+const CARGO_DEFAULT = "Consultor SAP Business One";
+const TELEFONO_DEFAULT = "601 7431624";
+const CLAVE_LOCAL = "consensus_firma_consultor";
+const $ = (id) => document.getElementById(id);
+
+const cap = { sample: null, user: null, db: null, downloads: null, dictation: null };
+let perfil = null;
+let idViewer = null;
+let archivosGenerados = [];   // [{cliente, carpeta, nombreHtml, html, nombreEml, eml}]
+let carpetaActual = "";
+let controlador = null;
+
+// ---------- Utilidades ----------
+const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const limpiarCampo = (s, max = 120) => String(s ?? "").replace(/[\r\n\t]+/g, " ").trim().slice(0, max);
+function nombreSeguro(texto, porDefecto) {
+    const n = String(texto ?? "").normalize("NFC").split("").map(c => /[\p{L}\p{N}_-]/u.test(c) ? c : "_").join("")
+        .replace(/_+/g, "_").replace(/^[_-]+|[_-]+$/g, "").slice(0, 80);
+    return n || porDefecto;
+}
+function normalizar(s) { return String(s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim(); }
+function capitalizar(s) { s = String(s ?? "").trim(); return s ? s[0].toUpperCase() + s.slice(1) : s; }
+function bytesABase64(u8) {
+    let bin = "";
+    for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+    return btoa(bin);
+}
+const textoABase64 = (s) => bytesABase64(new TextEncoder().encode(s));
+const lineas76 = (b64) => b64.replace(/.{1,76}/g, "$&\r\n").trimEnd();
+function conLimite(ms, promesa) {
+    return Promise.race([promesa, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
+}
+function setEstado(html) { $("estado-proceso").innerHTML = html; }
+function estadoProgreso(texto) { setEstado(`<span class="font-bold animate-pulse" style="color: var(--sap-boton-hover)">⏳ ${esc(texto)}</span>`); }
+function estadoError(texto) { setEstado(`<span class="text-red-600 font-bold">❌ ${esc(texto)}</span>`); }
+
+// ---------- Fechas del Excel ----------
+function aFecha(v) {
+    if (v instanceof Date && !isNaN(v)) {
+        const d = new Date(Math.round(v.getTime() / 60000) * 60000);   // SheetJS puede traer segundos sueltos
+        return d;
+    }
+    if (typeof v === "number" && isFinite(v) && v > 0) {
+        const p = XLSX.SSF.parse_date_code(v);
+        if (p) return new Date(p.y, p.m - 1, p.d, p.H, p.M);
+    }
+    const s = String(v ?? "").trim();
+    let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2}))?/);
+    if (m) return new Date(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0));
+    m = s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})(?:[ T,]+(\d{1,2}):(\d{2})\s*([ap]\.?\s*m\.?)?)?/i);
+    if (m) {
+        let anio = +m[3]; if (anio < 100) anio += 2000;
+        let h = +(m[4] || 0);
+        if (m[6] && /p/i.test(m[6]) && h < 12) h += 12;
+        if (m[6] && /a/i.test(m[6]) && h === 12) h = 0;
+        return new Date(anio, +m[2] - 1, +m[1], h, +(m[5] || 0));   // día primero, como la app
+    }
+    return null;
+}
+const pad = (n) => String(n).padStart(2, "0");
+const fmtFecha = (d) => `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+const fmtHora = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+function textoCelda(v) {
+    if (v instanceof Date) {
+        const d = aFecha(v);
+        if (d.getFullYear() < 1901) return fmtHora(d);
+        return (d.getHours() || d.getMinutes()) ? `${fmtFecha(d)} ${fmtHora(d)}` : fmtFecha(d);
+    }
+    return String(v ?? "").replace(/[\t\r\n]+/g, " ").trim();
+}
+function aNumero(v) {
+    if (typeof v === "number") return v;
+    const n = parseFloat(String(v ?? "").replace(/\s/g, "").replace(",", "."));
+    return isFinite(n) ? n : NaN;
+}
+
+// ---------- Lectura de archivos ----------
+async function leerTexto(file) {
+    const buf = new Uint8Array(await file.arrayBuffer());
+    try { return new TextDecoder("utf-8", { fatal: true }).decode(buf).replace(/^﻿/, ""); }
+    catch { return new TextDecoder("windows-1252").decode(buf); }
+}
+async function leerExcel(file) {
+    const wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: "array", cellDates: true });
+    const hojas = [];
+    for (const nombre of wb.SheetNames) {
+        const filas = XLSX.utils.sheet_to_json(wb.Sheets[nombre], { header: 1, raw: true, defval: "" })
+            .filter(f => f.some(c => textoCelda(c) !== ""));        // quita filas totalmente vacías
+        if (filas.length < 2) continue;
+        const ancho = Math.max(...filas.map(f => f.length));
+        const usadas = [...Array(ancho).keys()].filter(i => filas.some(f => textoCelda(f[i]) !== ""));  // quita columnas vacías
+        const encabezados = usadas.map((i, k) => textoCelda(filas[0][i]) || `Columna ${k + 1}`);
+        const datos = filas.slice(1).map(f => usadas.map(i => f[i] ?? ""));
+        hojas.push({ nombre, encabezados, datos });
+    }
+    return hojas;
+}
+// Mismo criterio que preparar_excel_para_prompt(): filtra solo si hay UNA columna de fecha de inicio identificable
+function filtrarHojaPorPeriodo(hoja, numeroMes, anio) {
+    const candidatos = hoja.encabezados.map((h, i) => [normalizar(h), i]).filter(([n]) =>
+        (n.includes("inicio") || n.includes("start")) && !["fin", "final", "end", "creacion", "registro"].some(t => n.includes(t))
+        && ["fecha", "date", "inicio", "start"].some(t => n.includes(t)));
+    if (candidatos.length !== 1) return hoja;
+    const col = candidatos[0][1];
+    const coinciden = hoja.datos.filter(f => { const d = aFecha(f[col]); return d && d.getMonth() + 1 === numeroMes && d.getFullYear() === anio; });
+    return coinciden.length ? { ...hoja, datos: coinciden } : hoja;
+}
+const hojaATSV = (h) => `=== HOJA: ${h.nombre} ===\n` + [h.encabezados, ...h.datos.map(f => f.map(textoCelda))].map(f => f.join("\t")).join("\n");
+async function textoPDF(file) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+    const paginas = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+        const c = await (await pdf.getPage(i)).getTextContent();
+        paginas.push(c.items.map(it => it.str).join(" "));
+    }
+    return paginas.join("\n");
+}
+async function leerInsumo(file) {
+    const n = file.name.toLowerCase();
+    if (/\.(xlsx|xls)$/.test(n)) return { texto: (await leerExcel(file)).map(hojaATSV).join("\n\n"), etiqueta: "Archivo Excel" };
+    if (n.endsWith(".docx")) return { texto: (await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() })).value, etiqueta: "Documento Word" };
+    if (n.endsWith(".pdf")) return { texto: await textoPDF(file), etiqueta: "Documento PDF" };
+    if (/\.(png|jpe?g|webp|gif)$/.test(n)) return { imagen: file };
+    return { texto: await leerTexto(file), etiqueta: "Archivo Adjunto" };
+}
+
+// ---------- Claude ----------
+function mensajeClaude(e) {
+    const m = {
+        not_granted: "No se permitió que este artefacto use Claude. Recarga la página y acepta el permiso para generar actas.",
+        sampling_disabled: "Claude no está disponible para tu cuenta u organización.",
+        rate_limited: "Llegaste al límite de uso de Claude por ahora. Espera unos minutos e inténtalo de nuevo.",
+        session_expired: "Tu sesión de claude.ai expiró. Inicia sesión de nuevo.",
+        prompt_too_large: "Los insumos son demasiado grandes. Reduce el texto o los archivos adjuntos.",
+        image_rejected: "Una de las imágenes no es válida o es demasiado grande.",
+        refused: "Claude no pudo procesar estos insumos. Revisa el contenido e inténtalo de nuevo.",
+        invalid_json: "La respuesta de Claude no tuvo el formato esperado. Inténtalo de nuevo.",
+        cancelled: "Proceso detenido.",
+    };
+    return m[e?.code] || "Falló la conexión con Claude. Inténtalo de nuevo.";
+}
+async function pedirJSON(prompt, opciones = {}) {
+    if (!cap.sample) throw { code: "sampling_disabled" };
+    return cap.sample.json(prompt, { signal: controlador?.signal, ...opciones });
+}
+
+// ---------- Firma, HTML y EML ----------
+function firmaHTML(p) {
+    return `<div style="border-top: 1px solid #e0e0e0; padding-top: 20px; font-size: 13px; color: #333333; line-height: 1.4;">
+          <p style="margin: 0 0 5px 0;">Cordialmente,</p>
+          <p style="margin: 0; font-weight: bold; color: #003366; font-size: 14px;">${esc(p.nombre)}</p>
+          <p style="margin: 0;">${esc(p.cargo || CARGO_DEFAULT)}</p>
+          <p style="margin: 0;">Tel: ${esc(p.telefono || TELEFONO_DEFAULT)}</p>
+          <p style="margin: 0;">Móvil: ${esc(p.celular)}</p>
+          <p style="margin: 0;">Correo: ${esc(p.email)}</p>
+          <p style="margin: 5px 0 0 0; font-weight: bold; color: #003366;">CONSENSUS S.A.S.</p>
+          <img src="cid:imagen_firma" alt="Consensus S.A.S." width="589" style="display: block; width: 100%; max-width: 589px; height: auto; margin-top: 10px;" />
+        </div>`;
+}
+function documentoCorreo(titulo, subtitulo, cuerpo) {
+    return `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>${esc(titulo)}</title>
+</head>
+<body style="margin: 0; padding: 20px; background-color: #f4f6f9; font-family: Arial, Helvetica, sans-serif; color: #333333;">
+  <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 750px; background-color: #ffffff; border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden;">
+    <tr>
+      <td style="background-color: #003366; padding: 20px; text-align: center; color: #ffffff;">
+        <h2 style="margin: 0; font-size: 20px; font-weight: normal; letter-spacing: 0.5px;">CONSENSUS S.A.S.</h2>
+        <p style="margin: 5px 0 0 0; font-size: 13px; color: #d0e1fd;">${esc(subtitulo)}</p>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding: 25px 30px;">
+${cuerpo}
+        ${firmaHTML(perfil)}
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+const PARRAFOS_CONFIRMACION = (texto) => `        <p style="margin: 0 0 12px 0; font-size: 13px; line-height: 1.5; color: #4a5568;">
+          ${texto}
+        </p>
+        <p style="margin: 0 0 25px 0; font-size: 13px; line-height: 1.5; color: #4a5568;">
+          Quedo atento ante su confirmación de aprobación por este medio.
+        </p>`;
+const detalle = (etiqueta, valor) => `          <p style="margin: 4px 0; font-size: 13px;"><strong>${esc(etiqueta)}:</strong> ${esc(valor)}</p>`;
+
+function htmlConsultoria(d) {
+    const actividades = d.actividades.map(a => `            <li style="margin-bottom: 8px;">${esc(a)}</li>`).join("\n");
+    return documentoCorreo("Confirmación de Consultoría SAP Business One", "Confirmación de Consultoría Posventa - SAP Business One", `
+        <p style="margin: 0 0 12px 0; font-size: 14px; line-height: 1.5;">Buen día, <strong>${esc(d.cliente)}</strong>.</p>
+        <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.5;">Mediante el presente, me permito confirmar la consultoría prestada, en la cual se llevaron a cabo las siguientes actividades:</p>
+        <div style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 18px 20px; margin-bottom: 25px;">
+          <h3 style="margin: 0 0 12px 0; font-size: 15px; color: #003366; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px;">Actividades Realizadas</h3>
+          <ol style="margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.7; color: #2d3748;">
+${actividades}
+          </ol>
+        </div>
+        <div style="background-color: #f8f9fa; border-left: 4px solid #003366; padding: 15px 20px; margin-bottom: 25px; border-radius: 0 4px 4px 0;">
+          <h3 style="margin: 0 0 10px 0; font-size: 14px; color: #003366; text-transform: uppercase; letter-spacing: 0.5px;">Detalles de la Sesión</h3>
+${detalle("Responsable de la actividad", d.responsable)}
+${detalle("Fecha de ejecución", d.fecha)}
+${detalle("Tiempo total ejecutado", `${d.horas} horas`)}
+${detalle("Observaciones", d.observaciones || "Ninguna")}
+        </div>
+${PARRAFOS_CONFIRMACION("Lo anterior con la finalidad de confirmar los procesos realizados durante la sesión remota y su aprobación mediante la respuesta de este correo.")}`);
+}
+
+function htmlImplementacion(c, mes, anio) {
+    const celda = (v, centro) => `<td${centro ? ' align="center"' : ""} style="padding: 7px 8px; border: 1px solid #e2e8f0;${centro ? " white-space: nowrap;" : ""}">${esc(v)}</td>`;
+    const th = (v, centro) => `<th align="${centro ? "center" : "left"}" style="padding: 8px; border: 1px solid #d0d7de;${centro ? " white-space: nowrap;" : ""}">${v}</th>`;
+    const filas = c.filas.map(f => `              <tr>${celda(f.actividad)}${celda(f.fecha, 1)}${celda(f.horaInicio, 1)}${celda(f.horaFin, 1)}${celda(f.horas, 1)}</tr>`).join("\n");
+    const lineas = [
+        detalle("Período", `${mes} ${anio}`),
+        detalle("Cliente", c.cliente),
+        detalle("Cantidad de actividades", c.filas.length),
+        detalle("Horas registradas", c.totalHoras),
+        c.tipos.length ? detalle("Tipo de actividad", c.tipos.join(", ")) : "",
+        detalle("Recursos participantes", c.recursos.join(", ") || "—"),
+        detalle("Actividades principales", c.principales.join("; ")),
+        `          <p style="margin: 4px 0; font-size: 13px;"><strong>Observaciones:</strong> ${esc(c.observacion)}</p>`,
+    ].filter(Boolean).join("\n");
+    return documentoCorreo("Relación de actividades realizadas", `Relación de Actividades - ${mes} ${anio}`, `
+        <p style="margin: 0 0 12px 0; font-size: 14px; line-height: 1.5;">Buen día,</p>
+        <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.5;">Comparto la relación de actividades ejecutadas durante el mes de ${esc(mes)} de ${esc(anio)}.</p>
+        <div style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 18px 20px; margin-bottom: 25px;">
+          <h3 style="margin: 0 0 12px 0; font-size: 15px; color: #003366; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px;">Actividades Realizadas</h3>
+          <table border="0" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse; font-size: 12px; color: #2d3748;">
+            <thead>
+              <tr style="background-color: #003366; color: #ffffff;">${th("Actividad")}${th("Fecha", 1)}${th("Hora inicio", 1)}${th("Hora fin", 1)}${th("Horas", 1)}</tr>
+            </thead>
+            <tbody>
+${filas}
+            </tbody>
+          </table>
+        </div>
+        <div style="background-color: #f8f9fa; border-left: 4px solid #003366; padding: 15px 20px; margin-bottom: 25px; border-radius: 0 4px 4px 0;">
+          <h3 style="margin: 0 0 10px 0; font-size: 14px; color: #003366; text-transform: uppercase; letter-spacing: 0.5px;">Detalles de la Sesión</h3>
+${lineas}
+        </div>
+${PARRAFOS_CONFIRMACION("Lo anterior con la finalidad de confirmar las actividades realizadas durante el período y su aprobación mediante la respuesta de este correo.")}`);
+}
+
+// HTML para navegador: la imagen de firma va incrustada en base64 (igual que main.py)
+const htmlParaArchivo = (html) => html.replace("cid:imagen_firma", `data:image/jpeg;base64,${FIRMA_B64}`);
+
+// Encabezado RFC 2047 en trozos para no romper caracteres UTF-8
+function encabezadoMIME(texto) {
+    if (/^[\x20-\x7e]*$/.test(texto)) return texto;
+    const trozos = []; let actual = "";
+    for (const ch of texto) {
+        if (new TextEncoder().encode(actual + ch).length > 45) { trozos.push(actual); actual = ""; }
+        actual += ch;
+    }
+    if (actual) trozos.push(actual);
+    return trozos.map(t => `=?utf-8?b?${textoABase64(t)}?=`).join("\r\n ");
+}
+// .eml como el de main.py: borrador (X-Unsent: 1), remitente = consultor, imagen de firma como recurso CID
+function construirEML({ para, asunto, html }) {
+    const alt = "==alt_" + Math.random().toString(36).slice(2);
+    const rel = "==rel_" + Math.random().toString(36).slice(2);
+    return [
+        `To: ${encabezadoMIME(para)}`,
+        `Subject: ${encabezadoMIME(asunto)}`,
+        `From: ${encabezadoMIME(perfil.nombre)} <${perfil.email}>`,
+        "X-Unsent: 1",
+        "MIME-Version: 1.0",
+        `Content-Type: multipart/alternative; boundary="${alt}"`,
+        "",
+        `--${alt}`,
+        'Content-Type: text/plain; charset="utf-8"',
+        "Content-Transfer-Encoding: base64",
+        "",
+        lineas76(textoABase64("Este es un correo en formato HTML. Por favor, utiliza un cliente de correo compatible.")),
+        "",
+        `--${alt}`,
+        `Content-Type: multipart/related; boundary="${rel}"`,
+        "",
+        `--${rel}`,
+        'Content-Type: text/html; charset="utf-8"',
+        "Content-Transfer-Encoding: base64",
+        "",
+        lineas76(textoABase64(html)),
+        "",
+        `--${rel}`,
+        "Content-Type: image/jpeg",
+        "Content-Transfer-Encoding: base64",
+        "Content-ID: <imagen_firma>",
+        'Content-Disposition: inline; filename="firma_consensus.jpg"',
+        "",
+        lineas76(FIRMA_B64),
+        "",
+        `--${rel}--`,
+        "",
+        `--${alt}--`,
+        "",
+    ].join("\r\n");
+}
+// Igual que la app: si el nombre ya existe en este lote, agrega _2, _3...
+function registrarArchivos({ cliente, carpeta, baseHtml, baseEml, html, para, asunto }) {
+    let nombreHtml = `${baseHtml}.html`, nombreEml = `${baseEml}.eml`, n = 2;
+    while (archivosGenerados.some(a => a.nombreHtml === nombreHtml || a.nombreEml === nombreEml)) {
+        nombreHtml = `${baseHtml}_${n}.html`; nombreEml = `${baseEml}_${n}.eml`; n++;
+    }
+    const item = { cliente, carpeta, nombreHtml, html: htmlParaArchivo(html), nombreEml, eml: construirEML({ para, asunto, html }), para };
+    archivosGenerados.push(item);
+    return item;
+}
+
+// ---------- Descargas ----------
+async function guardar(filename, data) {
+    if (!cap.downloads) { estadoError("La descarga no está disponible aquí. Abre el artefacto en claude.ai."); return; }
+    try { await cap.downloads.save({ filename, data }); }
+    catch (e) {
+        if (e?.code === "declined") return;
+        estadoError(e?.code === "rate_limited" ? "Ya hay una descarga pendiente de confirmar." : "No se pudo descargar el archivo.");
+    }
+}
+async function zipDe(items, conCarpeta) {
+    const zip = new JSZip();
+    for (const a of items) {
+        const dir = conCarpeta ? zip.folder(a.carpeta) : zip;
+        dir.file(a.nombreHtml, a.html);
+        dir.file(a.nombreEml, a.eml);
+    }
+    return zip.generateAsync({ type: "blob", compression: "DEFLATE" });
+}
+function pintarDescargas() {
+    const lista = $("lista-archivos-descarga");
+    lista.innerHTML = "";
+    archivosGenerados.forEach((a, i) => {
+        const fila = document.createElement("div");
+        fila.className = "flex flex-wrap items-center justify-between gap-2 py-1.5 border-b border-blue-100/70 last:border-0";
+        const nombre = document.createElement("span");
+        nombre.className = "font-bold text-gray-800 min-w-0 break-words";
+        nombre.textContent = a.cliente;
+        const acciones = document.createElement("div");
+        acciones.className = "flex flex-wrap items-center gap-1.5";
+        acciones.innerHTML = `<button type="button" class="boton-sec" data-ver="${i}">👁️ Ver HTML</button>
+            <button type="button" class="boton-sec" data-html="${i}">⬇️ HTML</button>
+            <button type="button" class="px-2.5 py-1 text-white rounded font-semibold text-[11px]" style="background: var(--sap-boton)" data-eml="${i}">📧 EML (Outlook)</button>`;
+        fila.append(nombre, acciones);
+        lista.append(fila);
+    });
+    $("panel-descargas").classList.toggle("hidden", !archivosGenerados.length);
+}
+$("lista-archivos-descarga").addEventListener("click", async (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    const a = archivosGenerados[+(b.dataset.ver ?? b.dataset.html ?? b.dataset.eml)];
+    if (b.dataset.ver !== undefined) {
+        $("tituloVista").textContent = a.nombreHtml;
+        $("iframeVista").srcdoc = a.html;
+        $("modalVista").hidden = false;
+    } else if (b.dataset.html !== undefined) {
+        await guardar(a.nombreHtml, new Blob([a.html], { type: "text/html" }));
+    } else {
+        await guardar(a.nombreEml.replace(/\.eml$/, ".zip"), await zipDe([a], false));
+    }
+});
+$("btnDescargarZip").addEventListener("click", async () => {
+    if (archivosGenerados.length) await guardar(`Actas_${carpetaActual}.zip`, await zipDe(archivosGenerados, true));
+});
+$("btnCerrarVista").addEventListener("click", () => { $("modalVista").hidden = true; $("iframeVista").srcdoc = ""; });
+
+// ---------- Editor de resumen ----------
+const quill = new Quill("#editor-container", {
+    theme: "snow",
+    placeholder: "El resumen de los archivos generados (.HTML y .EML) aparecerá aquí...",
+    modules: { toolbar: [[{ header: [1, 2, 3, false] }], ["bold", "italic", "underline"], [{ list: "ordered" }, { list: "bullet" }], ["clean"]] },
+});
+marked.setOptions({ breaks: true, gfm: true });
+const mostrarResumen = (md) => { quill.root.innerHTML = marked.parse(md); };
+
+// ---------- Modo de proceso ----------
+const hoy = new Date();
+MESES.forEach(m => $("mes_ejecucion").add(new Option(m, m)));
+$("mes_ejecucion").value = MESES[hoy.getMonth()];
+$("anio_ejecucion").value = hoy.getFullYear();
+$("fecha_ejecucion").value = `${hoy.getFullYear()}-${pad(hoy.getMonth() + 1)}-${pad(hoy.getDate())}`;
+let tipoProceso = "consultoria";
+function actualizarModo() {
+    const impl = tipoProceso === "implementacion";
+    document.querySelectorAll(".fx-tab").forEach(t => t.classList.toggle("activo", t.dataset.tipo === tipoProceso));
+    $("bloque-cliente").classList.toggle("hidden", impl);
+    $("nota-cliente-excel").classList.toggle("hidden", !impl);
+    $("bloque-periodo-implementacion").classList.toggle("hidden", !impl);
+    $("bloque-periodo-consultoria").classList.toggle("hidden", impl);
+    $("bloque-dictado").classList.toggle("hidden", impl);
+    $("lblArchivos").textContent = impl ? "📊 Archivo Excel de actividades (.xlsx, .xls)" : "📁 Archivos de Respaldo (.xlsx, .pdf, .docx, .txt, .csv, imágenes)";
+    $("archivos").accept = impl ? ".xlsx,.xls" : ".xlsx,.xls,.pdf,.docx,.txt,.csv,.md,.json,.log,.sql,.png,.jpg,.jpeg,.webp";
+}
+document.querySelectorAll(".fx-tab").forEach(t => t.addEventListener("click", () => { tipoProceso = t.dataset.tipo; actualizarModo(); }));
+actualizarModo();
+$("archivos").addEventListener("change", () => {
+    $("listaArchivos").textContent = [...$("archivos").files].map(f => f.name).join(" · ");
+});
+
+// ---------- Dictado (sustituye la grabación de audio: Claude trabaja sobre el texto) ----------
+let dictando = false;
+function iniciarDictado() {
+    const d = cap.dictation;
+    if (!d) { $("sinDictado").classList.remove("hidden"); return; }
+    d.onPartial(({ text }) => { $("parcialDictado").textContent = text; });
+    d.onFinal(({ text }) => {
+        const t = $("transcripcion");
+        t.value = (t.value && !/\s$/.test(t.value) ? t.value + " " : t.value) + text;
+        $("parcialDictado").textContent = "";
+    });
+    d.onState(({ state, reason }) => {
+        dictando = state === "listening";
+        $("btnDictar").textContent = dictando ? "■ Detener dictado" : "● Dictar";
+        $("btnDictar").classList.toggle("dictando", dictando);
+        $("estadoDictado").textContent = dictando ? "🔴 Escuchando... habla con normalidad."
+            : (reason === "not_granted" ? "No se permitió el micrófono. Puedes pegar la transcripción." : "Habla y el texto se agrega a la transcripción.");
+    });
+}
+$("btnDictar").addEventListener("click", () => {
+    const d = cap.dictation;
+    if (!d) { $("sinDictado").classList.remove("hidden"); return; }
+    if (dictando) { d.stop().catch(() => {}); return; }
+    d.start().catch(e => {
+        if (e?.code === "not_granted") { $("btnDictar").disabled = true; $("estadoDictado").textContent = "No se permitió el micrófono. Puedes pegar la transcripción."; }
+    });
+});
+
+// ---------- Flujo de consultoría ----------
+async function procesarConsultoria() {
+    const cliente = $("nombre_cliente").value.trim();
+    if (!cliente) { estadoError("Escribe el nombre del cliente."); $("nombre_cliente").focus(); return null; }
+    const responsable = $("responsable_cliente").value.trim() || "Responsable";
+    const f = $("fecha_ejecucion").value;
+    const fecha = f ? f.split("-").reverse().join("/") : "Fecha";
+    const horas = $("horas_ejecutadas").value.trim() || "0";
+    const notas = $("informacion_extra").value.trim();
+    const transcripcion = $("transcripcion").value.trim().slice(0, 40000);
+
+    estadoProgreso("Leyendo archivos adjuntos...");
+    let documentos = ""; const imagenes = [];
+    for (const file of $("archivos").files) {
+        try {
+            const r = await leerInsumo(file);
+            if (r.imagen) imagenes.push(r.imagen);
+            else if (r.texto.trim()) documentos += `\n--- ${r.etiqueta} (${file.name}) ---\n${r.texto.trim()}\n`;
+        } catch { documentos += `\n--- (No se pudo leer ${file.name}) ---\n`; }
+    }
+    if (!documentos.trim() && !notas && !transcripcion && !imagenes.length) {
+        estadoError("Debes dictar o pegar la transcripción, adjuntar al menos un archivo o ingresar notas del servicio.");
+        return null;
+    }
+    // El límite de Claude es 256 KB por llamada: se recorta con margen para acentos y el resto del prompt
+    if (documentos.length > 90000) documentos = documentos.slice(0, 90000) + "\n[... contenido recortado por tamaño ...]";
+    if (imagenes.length) {
+        const lim = await cap.sample.limits().catch(() => null);
+        if (!lim?.images) { estadoError("Este navegador no puede enviar imágenes a Claude. Quita las imágenes o usa texto."); return null; }
+        imagenes.splice(lim.images.maxCount);
+    }
+
+    const prompt = `ACTÚA COMO UN CONSULTOR SENIOR DE PROCESOS SAP BUSINESS ONE DE CONSENSUS S.A.S. ESPECIALIZADO EN CONSULTORÍA POSVENTA Y SOPORTE.
+
+Tu labor fundamental es analizar detalladamente los insumos suministrados (archivos adjuntos, notas, transcripción de la sesión${imagenes.length ? " e imágenes adjuntas" : ""}), identificar y extraer TODAS las tareas, consultas, revisiones técnicas, configuraciones, capacitaciones o actividades realizadas, para el acta de confirmación de consultoría.
+
+==================================================
+DATOS GENERALES DEL SERVICIO:
+==================================================
+- CLIENTE: ${cliente}
+- RESPONSABLE CLIENTE: ${responsable}
+- FECHA DE EJECUCIÓN: ${fecha}
+- HORAS DE CONSULTORÍA: ${horas} horas
+
+NOTAS DEL CONSULTOR:
+${notas || "(Ninguna nota manual ingresada)"}
+
+TRANSCRIPCIÓN DE LA SESIÓN:
+${transcripcion || "(Sin transcripción)"}
+
+CONTENIDO DE LOS ARCHIVOS ADJUNTOS:
+${documentos.trim() || "(Ningún contenido de texto en archivos adjuntos)"}
+==================================================
+
+REGLAS CRÍTICAS DE EXTRACCIÓN Y PROCESAMIENTO:
+1. EXTRACCIÓN TOTAL DE ACTIVIDADES REALIZADAS:
+   - Extrae e identifica CADA UNA de las tareas, requerimientos, consultas, revisiones, desarrollos o configuraciones técnicas contenidas en los insumos.
+   - Redacta cada actividad con tono profesional, técnico y formal para SAP Business One (ejemplo: "Revisión y parametrización de...", "Análisis y depuración de error en...", "Capacitación al equipo de...", "Validación de informes y consultas SQL en...").
+   - PROHIBIDO TERMINANTEMENTE dejar la lista vacía o escribir textos genéricos o corchetes de plantilla. Todo el contenido debe ser concreto y real; no inventes actividades que no estén en los insumos.
+   - Si los insumos contienen varios puntos o viñetas, incluye TODOS y cada uno de ellos como actividades separadas.
+2. OBSERVACIONES:
+   - Si en los insumos se menciona alguna observación, dificultad, acuerdo o pendiente relevante para el cliente, redáctala claramente.
+   - Si no hay observaciones explícitas, usa exactamente: Ninguna.
+3. DESTINATARIO:
+   - Si en los insumos aparece el correo electrónico del responsable del cliente, devuélvelo; si no, deja el campo vacío. No inventes direcciones.
+
+FORMATO DE RESPUESTA: responde SOLO con un objeto JSON, sin texto adicional:
+{"actividades": ["Actividad 1 redactada", "Actividad 2 redactada"], "observaciones": "Texto o Ninguna", "destinatario": "correo@cliente.com o vacío"}`;
+
+    estadoProgreso("Claude está redactando el acta de consultoría...");
+    const r = await pedirJSON(prompt, imagenes.length ? { images: imagenes } : {});
+    const actividades = (Array.isArray(r?.actividades) ? r.actividades : []).map(a => capitalizar(String(a))).filter(Boolean);
+    if (!actividades.length) { estadoError("Claude no encontró actividades en los insumos. Agrega más detalle e inténtalo de nuevo."); return null; }
+    const correoValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(r.destinatario || "").trim());
+    const para = correoValido ? String(r.destinatario).trim() : responsable;
+
+    const fechaD = f ? new Date(f + "T00:00") : null;
+    const carpeta = fechaD ? `Consultoria_${MESES[fechaD.getMonth()]}_${fechaD.getFullYear()}` : "Consultoria_Sin_fecha";
+    const html = htmlConsultoria({ cliente, responsable, fecha, horas, actividades, observaciones: String(r.observaciones || "Ninguna").trim() || "Ninguna" });
+    const asunto = `Confirmación de Consultoría SAP Business One - ${cliente} - ${fecha}`;
+    const base = `${nombreSeguro(cliente, "Cliente")}_${nombreSeguro(fecha, "Fecha")}`;
+    const item = registrarArchivos({ cliente, carpeta, baseHtml: `Acta_Consultoria_${base}`, baseEml: `Correo_Consultoria_${base}`, html, para, asunto });
+    carpetaActual = carpeta;
+    return [
+        "# 📊 Resumen de Consultoría Posventa",
+        `**Carpeta dentro del ZIP:** \`${carpeta}/\``, "---", "### 📂 Archivos Generados",
+        "| Cliente | Fecha | Horas | Archivo HTML | Archivo EML (Outlook) | Estado |",
+        "| :--- | :--- | :--- | :--- | :--- | :--- |",
+        `| **${cliente}** | ${fecha} | ${horas} hrs | \`${item.nombreHtml}\` | \`${item.nombreEml}\` | ✅ Generado |`,
+        "", `**Destinatario:** ${para} · **Actividades:** ${actividades.length}`,
+        "", "> 💡 Descarga el **.EML** con el botón de arriba (viene en un .ZIP), descomprímelo y ábrelo en Outlook: aparece como borrador listo para revisar y enviar.",
+    ].join("\n");
+}
+
+// ---------- Flujo de implementación ----------
+const CAMPOS = ["cliente", "actividad", "fecha_inicio", "fecha_fin", "hora_inicio", "hora_fin", "horas", "recurso", "correo", "tipo", "accion", "estado"];
+async function mapearColumnas(hoja) {
+    const muestra = [hoja.encabezados, ...hoja.datos.slice(0, 8).map(f => f.map(textoCelda))].map(f => f.join("\t")).join("\n");
+    const r = await pedirJSON(`Eres un sistema de mapeo de columnas para reportes de Consensus S.A.S. Estas son las primeras filas (TSV) de una hoja de registro de actividades:
+
+${muestra}
+
+Identifica qué encabezado EXACTO corresponde a cada campo (o null si no existe):
+- cliente: Cuenta o Cliente
+- actividad: Descripción de la actividad
+- fecha_inicio: fecha de inicio (NUNCA una fecha de creación o registro)
+- fecha_fin: fecha de fin
+- hora_inicio / hora_fin: solo si la hora está en una columna separada de la fecha
+- horas: horas registradas
+- recurso: Persona o recurso que ejecutó
+- correo: Correo Responsable (destinatario del correo)
+- tipo: Tipo de actividad
+- accion: Acción
+- estado: estado o indicador de actividad proyectada/futura, si existe
+
+Responde SOLO con JSON: {"cliente": "...", "actividad": "...", "fecha_inicio": "...", "fecha_fin": null, "hora_inicio": null, "hora_fin": null, "horas": "...", "recurso": "...", "correo": "...", "tipo": null, "accion": null, "estado": null}`, { modelTier: "quick" });
+    const idx = {};
+    for (const c of CAMPOS) {
+        const nombre = r?.[c];
+        const i = nombre == null ? -1 : hoja.encabezados.findIndex(h => h === nombre || normalizar(h) === normalizar(nombre));
+        idx[c] = i;
+    }
+    return idx;
+}
+function horaDe(fila, idxFecha, idxHora) {
+    if (idxHora >= 0) { const d = aFecha(fila[idxHora]); if (d) return fmtHora(d); const s = textoCelda(fila[idxHora]); if (/^\d{1,2}:\d{2}/.test(s)) return s.slice(0, 5).padStart(5, "0"); }
+    if (idxFecha >= 0) { const d = aFecha(fila[idxFecha]); if (d && (d.getHours() || d.getMinutes())) return fmtHora(d); }
+    return "";
+}
+async function corregirCliente(nombre, filas, indicaciones) {
+    const lote = 120, corregidas = [], descartar = new Set(); let observacion = "";
+    for (let ini = 0; ini < filas.length; ini += lote) {
+        const parte = filas.slice(ini, ini + lote);
+        const lista = parte.map((f, k) => JSON.stringify({ i: ini + k, actividad: f.actividadOriginal, accion: f.accion || undefined, estado: f.estado || undefined })).join("\n");
+        const r = await pedirJSON(`ACTÚA COMO UN SISTEMA DE AUTOMATIZACIÓN DE REPORTES PARA CONSENSUS S.A.S. Cliente: ${nombre}.
+${indicaciones ? `Indicaciones del consultor: ${indicaciones}\n` : ""}
+Actividades registradas (una por línea, JSON):
+${lista}
+
+Tareas:
+1. REVISIÓN ORTOGRÁFICA: corrige errores evidentes, tildes y espacios de cada actividad sin cambiar el sentido técnico. Primera letra en mayúscula. Conserva siglas y nombres propios. Devuelve una por cada entrada, en el mismo orden.
+2. Indica en "descartar" solo las actividades identificadas EXPLÍCITAMENTE como proyectadas o futuras (por su estado o texto). Una Acción genérica como "Realizar" no prueba nada.
+3. OBSERVACIÓN para el cliente: solo si los datos muestran información clara y relevante que el cliente deba conocer. Nada de control interno, nada sobre horas frente a intervalos horarios, nada genérico. Si no hay, cadena vacía.
+
+Responde SOLO con JSON: {"actividades": ["..."], "descartar": [números i], "observacion": ""}`, { modelTier: "quick" });
+        const arr = Array.isArray(r?.actividades) && r.actividades.length === parte.length ? r.actividades : parte.map(f => f.actividadOriginal);
+        arr.forEach(a => corregidas.push(capitalizar(String(a))));
+        (Array.isArray(r?.descartar) ? r.descartar : []).forEach(i => descartar.add(+i));
+        if (!observacion && r?.observacion) observacion = String(r.observacion).trim();
+    }
+    return { corregidas, descartar, observacion };
+}
+async function procesarImplementacion() {
+    const mes = $("mes_ejecucion").value, anio = parseInt($("anio_ejecucion").value, 10);
+    if (!mes || !anio) { estadoError("El Mes y el Año son requeridos."); return null; }
+    const excel = [...$("archivos").files].find(f => /\.(xlsx|xls)$/i.test(f.name));
+    if (!excel) { estadoError("Adjunta un archivo Excel válido (.xlsx, .xls)."); return null; }
+    const numeroMes = MESES.indexOf(mes) + 1;
+    const indicaciones = $("informacion_extra").value.trim();
+
+    estadoProgreso("Leyendo el Excel...");
+    const hojas = (await leerExcel(excel)).map(h => filtrarHojaPorPeriodo(h, numeroMes, anio));
+    if (!hojas.length) { estadoError("El Excel no tiene hojas con datos."); return null; }
+
+    const clientes = new Map(); const descartados = []; const vistos = new Set();
+    for (const hoja of hojas) {
+        estadoProgreso(`Identificando columnas de la hoja "${hoja.nombre}"...`);
+        const ix = await mapearColumnas(hoja);
+        if (ix.cliente < 0 || ix.actividad < 0 || ix.fecha_inicio < 0 || ix.horas < 0) {
+            descartados.push(`Hoja "${hoja.nombre}": no se identificaron las columnas de cliente, actividad, fecha de inicio y horas.`);
+            continue;
+        }
+        for (const fila of hoja.datos) {
+            const clave = JSON.stringify(fila.map(textoCelda));
+            if (vistos.has(clave)) { descartados.push("Registro duplicado exacto."); continue; }
+            vistos.add(clave);
+            const cliente = textoCelda(fila[ix.cliente]), actividad = textoCelda(fila[ix.actividad]);
+            const inicio = aFecha(fila[ix.fecha_inicio]), horas = aNumero(fila[ix.horas]);
+            if (!cliente || !actividad || !inicio) { descartados.push("Registro sin cliente, actividad o fecha de inicio válida."); continue; }
+            if (!(inicio.getMonth() + 1 === numeroMes && inicio.getFullYear() === anio)) continue;   // filtrado estricto por fecha de inicio
+            if (!(horas > 0)) { descartados.push(`${cliente}: registro con horas menores o iguales a cero.`); continue; }
+            const llave = normalizar(cliente);
+            if (!clientes.has(llave)) clientes.set(llave, { cliente, filas: [] });
+            const horaIni = horaDe(fila, ix.fecha_inicio, ix.hora_inicio);
+            const [hh, mm] = horaIni ? horaIni.split(":").map(Number) : [0, 0];
+            clientes.get(llave).filas.push({
+                actividadOriginal: actividad,
+                orden: new Date(inicio.getFullYear(), inicio.getMonth(), inicio.getDate(), hh, mm).getTime(),   // cronológico por fecha y hora de inicio
+                fecha: fmtFecha(inicio), horaInicio: horaIni || "—", horaFin: horaDe(fila, ix.fecha_fin, ix.hora_fin) || "—",
+                horas: Math.round(horas * 100) / 100,
+                recurso: ix.recurso >= 0 ? textoCelda(fila[ix.recurso]) : "",
+                correo: ix.correo >= 0 ? textoCelda(fila[ix.correo]) : "",
+                tipo: ix.tipo >= 0 ? textoCelda(fila[ix.tipo]) : "",
+                accion: ix.accion >= 0 ? textoCelda(fila[ix.accion]) : "",
+                estado: ix.estado >= 0 ? textoCelda(fila[ix.estado]) : "",
+            });
+        }
+    }
+    if (!clientes.size) {
+        estadoError(`No hay actividades con fecha de inicio en ${mes} de ${anio}.`);
+        return `# 📊 Resumen de Procesamiento: ${mes} de ${anio}\n\n*No se generaron archivos. Revisa el Excel o el período seleccionado.*` +
+            (descartados.length ? `\n\n### ⚠️ Avisos\n${[...new Set(descartados)].map(d => `- ${d}`).join("\n")}` : "");
+    }
+
+    const carpeta = `${mes}_${anio}`;
+    const resumen = [`# 📊 Resumen de Procesamiento: ${mes} de ${anio}`, `**Carpeta dentro del ZIP:** \`${carpeta}/\``, "---",
+        "### 📂 Archivos Generados", "| Cliente / Cuenta | Horas Totales | Destinatario | Estado |", "| :--- | :--- | :--- | :--- |"];
+    const errores = []; let k = 0;
+    for (const c of clientes.values()) {
+        k++;
+        estadoProgreso(`Claude está revisando ${c.cliente} (${k} de ${clientes.size})...`);
+        try {
+            c.filas.sort((a, b) => a.orden - b.orden);
+            const { corregidas, descartar, observacion } = await corregirCliente(c.cliente, c.filas, indicaciones);
+            c.filas.forEach((f, i) => { f.actividad = corregidas[i] || capitalizar(f.actividadOriginal); });
+            const proyectadas = c.filas.filter((_, i) => descartar.has(i));
+            proyectadas.forEach(f => descartados.push(`${c.cliente}: "${f.actividad}" descartada por estar proyectada o ser futura.`));
+            c.filas = c.filas.filter((_, i) => !descartar.has(i));
+            if (!c.filas.length) continue;
+            c.totalHoras = Math.round(c.filas.reduce((s, f) => s + f.horas, 0) * 100) / 100;
+            c.recursos = [...new Set(c.filas.map(f => f.recurso).filter(Boolean))];
+            c.tipos = [...new Set(c.filas.map(f => f.tipo).filter(Boolean))];
+            // Hasta tres actividades principales sin duplicar: las de más horas acumuladas
+            const porActividad = new Map();
+            c.filas.forEach(f => porActividad.set(f.actividad, (porActividad.get(f.actividad) || 0) + f.horas));
+            c.principales = [...porActividad.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([a]) => a);
+            c.observacion = observacion;
+            const correos = [...new Set(c.filas.flatMap(f => f.correo.split(/[,;\s]+/)).map(s => s.trim().toLowerCase()).filter(s => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s)))];
+            const para = correos.length ? correos.join(", ") : "[Correo no encontrado]";
+            const asunto = `Relación de actividades realizadas - ${c.cliente} - ${mes.toUpperCase()} ${anio}`;
+            const seguro = nombreSeguro(c.cliente, "Cliente");
+            registrarArchivos({ cliente: c.cliente, carpeta, baseHtml: `${seguro}_Reporte_${mes}_${anio}`, baseEml: `${seguro}_Correo_${mes}_${anio}`,
+                html: htmlImplementacion(c, mes, anio), para, asunto });
+            resumen.push(`| ${c.cliente} | ${c.totalHoras} | ${para} | ✅ Generado |`);
+        } catch (e) {
+            if (e?.code === "cancelled" || e?.code === "not_granted" || e?.code === "rate_limited") throw e;
+            errores.push(`Fallo al generar archivos para '${c.cliente}': ${mensajeClaude(e)}`);
+        }
+    }
+    carpetaActual = carpeta;
+    if (errores.length) resumen.push("", "---", "### ⚠️ Errores", ...errores.map(e => `- ${e}`));
+    const avisos = [...new Set(descartados)];
+    if (avisos.length) resumen.push("", "---", "### 🔎 Registros descartados", ...avisos.slice(0, 40).map(d => `- ${d}`));
+    const sinCorreo = archivosGenerados.filter(a => a.para === "[Correo no encontrado]").map(a => a.cliente);
+    if (sinCorreo.length) resumen.push("", `> ⚠️ **Sin correo responsable:** ${sinCorreo.join(", ")}. Completa el destinatario en Outlook antes de enviar.`);
+    resumen.push("", "---", "> 📦 **Descarga rápida:** usa **Descargar Todo (.ZIP)** para bajar todas las actas y correos.");
+    return resumen.join("\n");
+}
+
+// ---------- Envío del formulario ----------
+$("formActa").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!cap.sample) { estadoError("Abre este artefacto en claude.ai para generar actas."); return; }
+    const btn = $("btnSubmit"), textoBtn = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = "⏳ Procesando con Claude...";
+    $("btnDetener").classList.remove("hidden");
+    controlador = new AbortController();
+    archivosGenerados = []; pintarDescargas(); quill.setText("");
+    try {
+        const resumen = tipoProceso === "implementacion" ? await procesarImplementacion() : await procesarConsultoria();
+        if (resumen) {
+            mostrarResumen(resumen);
+            pintarDescargas();
+            $("badgeCarpeta").textContent = `${carpetaActual}/`;
+            const n = archivosGenerados.length;
+            if (n) setEstado(`<div class="p-2.5 bg-green-50 border border-green-200 rounded-lg text-green-800 text-xs text-left">
+                <p class="font-bold text-green-900">✅ Proceso finalizado. ${n} acta(s) generada(s).</p>
+                <p class="text-gray-600 mt-1">Descarga los archivos desde el panel de arriba.</p></div>`);
+            if (tipoProceso === "consultoria" && n) { $("transcripcion").value = ""; $("informacion_extra").value = ""; }
+            $("archivos").value = ""; $("listaArchivos").textContent = "";
+        }
+    } catch (err) {
+        estadoError(mensajeClaude(err));
+        if (archivosGenerados.length) pintarDescargas();
+    } finally {
+        btn.disabled = !cap.sample; btn.innerHTML = textoBtn;
+        $("btnDetener").classList.add("hidden");
+        controlador = null;
+    }
+});
+$("btnDetener").addEventListener("click", () => controlador?.abort());
+
+// ---------- Perfil de firma (cuenta de claude.ai + datos guardados en el db privado del consultor) ----------
+function aplicarPerfil() {
+    $("lblUsuarioNombre").textContent = perfil?.nombre || "";
+    $("lblUsuarioCargo").textContent = perfil?.cargo || "";
+    $("appPrincipal").inert = !perfil;
+    $("modalPerfil").hidden = !!perfil;
+}
+function abrirPerfil(editando) {
+    const p = perfil || {};
+    $("perfil_nombre").value = p.nombre || $("perfil_nombre").value;
+    $("perfil_email").value = p.email || $("perfil_email").value;
+    $("perfil_cargo").value = p.cargo || CARGO_DEFAULT;
+    $("perfil_celular").value = p.celular || "";
+    $("perfil_telefono").value = p.telefono || TELEFONO_DEFAULT;
+    $("tituloPerfil").textContent = editando ? "⚙️ Mi Perfil" : "🔒 Configura tu firma";
+    $("btnCerrarPerfil").classList.toggle("hidden", !editando);
+    $("mensajePerfil").classList.add("hidden");
+    $("modalPerfil").hidden = false;
+    $("appPrincipal").inert = true;
+}
+$("btnAbrirPerfil").addEventListener("click", () => abrirPerfil(true));
+$("btnCerrarPerfil").addEventListener("click", () => { if (perfil) aplicarPerfil(); });
+$("formPerfil").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const nuevo = {
+        nombre: limpiarCampo($("perfil_nombre").value), email: limpiarCampo($("perfil_email").value).toLowerCase(),
+        cargo: limpiarCampo($("perfil_cargo").value) || CARGO_DEFAULT, celular: limpiarCampo($("perfil_celular").value, 40),
+        telefono: limpiarCampo($("perfil_telefono").value, 40) || TELEFONO_DEFAULT,
+    };
+    const msg = $("mensajePerfil");
+    if (!nuevo.nombre || !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(nuevo.email)) {
+        msg.className = "text-xs font-medium text-red-600"; msg.textContent = "❌ Escribe tu nombre completo y un correo válido."; return;
+    }
+    let guardadoEnNube = false;
+    if (cap.db && idViewer) {
+        try { await conLimite(10000, cap.db.doc(`data/users/${idViewer}/perfil`).set(nuevo)); guardadoEnNube = true; } catch { }
+    }
+    try { localStorage.setItem(CLAVE_LOCAL, JSON.stringify(nuevo)); } catch { }
+    perfil = nuevo;
+    aplicarPerfil();
+    if (!guardadoEnNube && cap.db) setEstado('<span class="text-amber-700">⚠️ La firma quedó guardada solo en este navegador.</span>');
+});
+
+// ---------- Arranque ----------
+(async () => {
+    const usar = (n) => (window.claude?.use ? window.claude.use(n).catch(() => null) : Promise.resolve(null));
+    [cap.sample, cap.user, cap.db, cap.downloads, cap.dictation] = await Promise.all(["sample", "user", "db", "downloads", "dictation"].map(usar));
+    $("avisoSinClaude").classList.toggle("hidden", !!cap.sample);
+    $("btnSubmit").disabled = !cap.sample;
+    iniciarDictado();
+
+    let guardado = null;
+    if (cap.user) {
+        const me = await cap.user.me();
+        idViewer = me.id;
+        $("imgAvatar").src = me.avatarUrl; $("imgAvatar").hidden = false;
+        if (me.name) $("perfil_nombre").value = me.name;
+        if (me.email) $("perfil_email").value = me.email;
+        if (cap.db && idViewer) {
+            try {
+                const snap = await conLimite(10000, cap.db.doc(`data/users/${idViewer}/perfil`).get());
+                if (snap.exists) guardado = snap.data();
+            } catch { }
+        }
+    }
+    if (!guardado) { try { guardado = JSON.parse(localStorage.getItem(CLAVE_LOCAL) || "null"); } catch { } }
+    if (guardado?.nombre && guardado?.email) perfil = guardado;
+    aplicarPerfil();
+    if (!perfil) abrirPerfil(false);
+})();
+</script>

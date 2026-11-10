@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Relación de actividades realizadas</title>
+</head>
+<body style="margin: 0; padding: 20px; background-color: #f4f6f9; font-family: Arial, Helvetica, sans-serif; color: #333333;">
+  <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 750px; background-color: #ffffff; border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden;">
+    <tr>
+      <td style="background-color: #003366; padding: 20px; text-align: center; color: #ffffff;">
+        <h2 style="margin: 0; font-size: 20px; font-weight: normal; letter-spacing: 0.5px;">CONSENSUS S.A.S.</h2>
+        <p style="margin: 5px 0 0 0; font-size: 13px; color: #d0e1fd;">Relación de Actividades - {{MES}} {{AÑO}}</p>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding: 25px 30px;">
+        <p style="margin: 0 0 12px 0; font-size: 14px; line-height: 1.5;">Buen día,</p>
+        <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.5;">Comparto la relación de actividades ejecutadas durante el mes de {{MES}} de {{AÑO}}.</p>
+
+        <div style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 18px 20px; margin-bottom: 25px;">
+          <h3 style="margin: 0 0 12px 0; font-size: 15px; color: #003366; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px;">Actividades Realizadas</h3>
+          <table border="0" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse; font-size: 12px; color: #2d3748;">
+            <thead>
+              <tr style="background-color: #003366; color: #ffffff;">
+                <th align="left" style="padding: 8px; border: 1px solid #d0d7de;">Actividad</th>
+                <th align="center" style="padding: 8px; border: 1px solid #d0d7de; white-space: nowrap;">Fecha</th>
+                <th align="center" style="padding: 8px; border: 1px solid #d0d7de; white-space: nowrap;">Hora inicio</th>
+                <th align="center" style="padding: 8px; border: 1px solid #d0d7de; white-space: nowrap;">Hora fin</th>
+                <th align="center" style="padding: 8px; border: 1px solid #d0d7de;">Horas</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{FILAS: una por actividad, en orden cronológico:
+              <tr>
+                <td style="padding: 7px 8px; border: 1px solid #e2e8f0;">Actividad</td>
+                <td align="center" style="padding: 7px 8px; border: 1px solid #e2e8f0; white-space: nowrap;">DD/MM/AAAA</td>
+                <td align="center" style="padding: 7px 8px; border: 1px solid #e2e8f0;">HH:MM</td>
+                <td align="center" style="padding: 7px 8px; border: 1px solid #e2e8f0;">HH:MM</td>
+                <td align="center" style="padding: 7px 8px; border: 1px solid #e2e8f0;">Horas</td>
+              </tr>}}
+            </tbody>
+          </table>
+        </div>
+
+        <div style="background-color: #f8f9fa; border-left: 4px solid #003366; padding: 15px 20px; margin-bottom: 25px; border-radius: 0 4px 4px 0;">
+          <h3 style="margin: 0 0 10px 0; font-size: 14px; color: #003366; text-transform: uppercase; letter-spacing: 0.5px;">Detalles de la Sesión</h3>
+          <p style="margin: 4px 0; font-size: 13px;"><strong>Período:</strong> {{MES}} {{AÑO}}</p>
+          <p style="margin: 4px 0; font-size: 13px;"><strong>Cliente:</strong> {{CLIENTE}}</p>
+          <p style="margin: 4px 0; font-size: 13px;"><strong>Cantidad de actividades:</strong> {{CANTIDAD}}</p>
+          <p style="margin: 4px 0; font-size: 13px;"><strong>Horas registradas:</strong> {{HORAS_TOTALES}}</p>
+          <p style="margin: 4px 0; font-size: 13px;"><strong>Tipo de actividad:</strong> {{TIPO o quitar esta línea si no existe}}</p>
+          <p style="margin: 4px 0; font-size: 13px;"><strong>Recursos participantes:</strong> {{RECURSOS}}</p>
+          <p style="margin: 4px 0; font-size: 13px;"><strong>Actividades principales:</strong> {{HASTA_3_ACTIVIDADES}}</p>
+          <p style="margin: 4px 0; font-size: 13px;"><strong>Observaciones:</strong> {{OBSERVACION_RELEVANTE o vacío}}</p>
+        </div>
+
+        <p style="margin: 0 0 12px 0; font-size: 13px; line-height: 1.5; color: #4a5568;">
+          Lo anterior con la finalidad de confirmar las actividades realizadas durante el período y su aprobación mediante la respuesta de este correo.
+        </p>
+        <p style="margin: 0 0 25px 0; font-size: 13px; line-height: 1.5; color: #4a5568;">
+          Quedo atento ante su confirmación de aprobación por este medio.
+        </p>
+
+        <div style="border-top: 1px solid #e0e0e0; padding-top: 20px; font-size: 13px; color: #333333; line-height: 1.4;">
+          <p style="margin: 0 0 5px 0;">Cordialmente,</p>
+          <p style="margin: 0; font-weight: bold; color: #003366; font-size: 14px;">{{CONSULTOR_NOMBRE}}</p>
+          <p style="margin: 0;">{{CONSULTOR_CARGO}}</p>
+          <p style="margin: 0;">Tel: {{CONSULTOR_TEL}}</p>
+          <p style="margin: 0;">Móvil: {{CONSULTOR_CELULAR}}</p>
+          <p style="margin: 0;">Correo: {{CONSULTOR_EMAIL}}</p>
+          <p style="margin: 5px 0 0 0; font-weight: bold; color: #003366;">CONSENSUS S.A.S.</p>
+          <img src="cid:imagen_firma" alt="Consensus S.A.S." width="589" style="display: block; width: 100%; max-width: 589px; height: auto; margin-top: 10px;" />
+        </div>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

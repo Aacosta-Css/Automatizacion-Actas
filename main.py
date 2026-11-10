@@ -689,8 +689,8 @@ async def procesar_acta(
 
 
 
-                Debajo de CONSENSUS S.A.S., incluye la imagen de firma con ancho máximo de 400px y la etiqueta exacta:
-                <img src="cid:imagen_firma" alt="Consensus S.A.S." style="display: block; max-width: 400px; height: auto; margin-top: 10px;" />
+                Debajo de CONSENSUS S.A.S., incluye la imagen de firma con ancho de 589 px (su tamaño real) y la etiqueta exacta:
+                <img src="cid:imagen_firma" alt="Consensus S.A.S." width="589" style="display: block; width: 100%; max-width: 589px; height: auto; margin-top: 10px;" />
 
                 8. DESTINATARIO Y ASUNTO
                 Para cada cliente usa el correo válido de Correo Responsable. Si hay varios correos responsables válidos y distintos para el mismo cliente, inclúyelos en el encabezado To, separados por coma (,), sin duplicarlos. Si no hay correo, escribe exactamente [Correo no encontrado]. No inventes direcciones.
@@ -753,7 +753,7 @@ async def procesar_acta(
                             if 'cid:imagen_firma' in html_para_archivo:
                                 html_para_archivo = html_para_archivo.replace('cid:imagen_firma', uri_b64)
                             elif 'CONSENSUS S.A.S.</p>' in html_para_archivo and uri_b64 not in html_para_archivo:
-                                html_para_archivo = html_para_archivo.replace('CONSENSUS S.A.S.</p>', f'CONSENSUS S.A.S.</p><br><img src="{uri_b64}" alt="Consensus S.A.S." style="display: block; max-width: 400px; height: auto; margin-top: 10px;" />', 1)
+                                html_para_archivo = html_para_archivo.replace('CONSENSUS S.A.S.</p>', f'CONSENSUS S.A.S.</p><br><img src="{uri_b64}" alt="Consensus S.A.S." width="589" style="display: block; width: 100%; max-width: 589px; height: auto; margin-top: 10px;" />', 1)
                         except Exception as e_b64:
                             print(f"Advertencia al incrustar Base64 en HTML: {e_b64}")
 
@@ -780,7 +780,7 @@ async def procesar_acta(
                     
                     html_para_eml = contenido_html
                     if 'cid:imagen_firma' not in html_para_eml and 'CONSENSUS S.A.S.</p>' in html_para_eml:
-                        html_para_eml = html_para_eml.replace('CONSENSUS S.A.S.</p>', 'CONSENSUS S.A.S.</p><br><img src="cid:imagen_firma" alt="Consensus S.A.S." style="display: block; max-width: 250px; height: auto; margin-top: 10px;" />', 1)
+                        html_para_eml = html_para_eml.replace('CONSENSUS S.A.S.</p>', 'CONSENSUS S.A.S.</p><br><img src="cid:imagen_firma" alt="Consensus S.A.S." width="589" style="display: block; width: 100%; max-width: 589px; height: auto; margin-top: 10px;" />', 1)
 
                     msg.set_content("Este es un correo en formato HTML. Por favor, utiliza un cliente de correo compatible.")
                     msg.add_alternative(html_para_eml, subtype='html')
@@ -1092,7 +1092,7 @@ Subject: Confirmación de Consultoría SAP Business One - {cliente_nombre_final}
                             if 'cid:imagen_firma' in html_para_archivo:
                                 html_para_archivo = html_para_archivo.replace('cid:imagen_firma', uri_b64)
                             elif 'CONSENSUS S.A.S.</p>' in html_para_archivo and uri_b64 not in html_para_archivo:
-                                html_para_archivo = html_para_archivo.replace('CONSENSUS S.A.S.</p>', f'CONSENSUS S.A.S.</p><br><img src="{uri_b64}" alt="Consensus S.A.S." style="display: block; max-width: 400px; height: auto; margin-top: 10px;" />', 1)
+                                html_para_archivo = html_para_archivo.replace('CONSENSUS S.A.S.</p>', f'CONSENSUS S.A.S.</p><br><img src="{uri_b64}" alt="Consensus S.A.S." width="589" style="display: block; width: 100%; max-width: 589px; height: auto; margin-top: 10px;" />', 1)
                         except Exception as e_b64:
                             print(f"Advertencia al incrustar Base64 en HTML: {e_b64}")
 
@@ -1113,7 +1113,7 @@ Subject: Confirmación de Consultoría SAP Business One - {cliente_nombre_final}
 
                     html_para_eml = contenido_html
                     if 'cid:imagen_firma' not in html_para_eml and 'CONSENSUS S.A.S.</p>' in html_para_eml:
-                        html_para_eml = html_para_eml.replace('CONSENSUS S.A.S.</p>', 'CONSENSUS S.A.S.</p><br><img src="cid:imagen_firma" alt="Consensus S.A.S." style="display: block; max-width: 250px; height: auto; margin-top: 10px;" />', 1)
+                        html_para_eml = html_para_eml.replace('CONSENSUS S.A.S.</p>', 'CONSENSUS S.A.S.</p><br><img src="cid:imagen_firma" alt="Consensus S.A.S." width="589" style="display: block; width: 100%; max-width: 589px; height: auto; margin-top: 10px;" />', 1)
 
                     msg.set_content("Este es un correo en formato HTML. Por favor, utiliza un cliente de correo compatible.")
                     msg.add_alternative(html_para_eml, subtype='html')
