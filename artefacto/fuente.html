@@ -492,32 +492,45 @@ const CAMPOS = [
     ["horas", "Horas", true], ["fecha_fin", "Fecha de fin"], ["hora_inicio", "Hora inicio (si va aparte)"], ["hora_fin", "Hora fin (si va aparte)"],
     ["recurso", "Persona / Recurso"], ["correo", "Correo responsable"], ["responsable", "Responsable del proyecto (se busca su correo)"], ["tipo", "Tipo de actividad"], ["accion", "Acción"], ["estado", "Estado"],
 ];
+// Tipo de dato según lo diligenciado en la columna (decide entre encabezados repetidos, p. ej. dos «Cuenta»)
+const TIPOS_DATO = {
+    fecha: (v) => v instanceof Date || /^\d{1,4}[\/.-]\d{1,2}[\/.-]\d{1,4}/.test(textoCelda(v)),
+    numero: (v) => !(v instanceof Date) && isFinite(aNumero(v)) && /^[\d\s.,]+$/.test(textoCelda(v)),
+    texto: (v) => !(v instanceof Date) && /\p{L}/u.test(textoCelda(v)),
+    correo: (v) => textoCelda(v).split(/[,;\s]+/).some(s => CORREO_RE.test(s)),
+};
 function detectarColumnas(encabezados, datos = []) {
     const n = encabezados.map(normalizar), usado = new Set(), r = {};
-    const esTexto = (v) => { const s = textoCelda(v); return s && !/^[\d\s.,\-–—]+$/.test(s); };
-    const candidatosCliente = n.map((h, i) => /cuenta|cliente|customer|account|razon social/.test(h) ? i : -1).filter(i => i >= 0);
-    if (candidatosCliente.length) {
-        const muestra = datos.slice(0, 200);
-        const puntaje = (i) => muestra.filter(f => esTexto(f[i])).length;
-        r.cliente = candidatosCliente.reduce((mejor, i) => puntaje(i) > puntaje(mejor) ? i : mejor);
-        usado.add(r.cliente);
-        candidatosCliente.forEach(i => usado.add(i));        // la otra «Cuenta» (NIT) no se usa para otro campo
-    }
-    const buscar = (campo, pred) => { if (r[campo] >= 0) return; const i = n.findIndex((h, k) => !usado.has(k) && pred(h)); r[campo] = i; if (i >= 0) usado.add(i); };
+    const muestra = datos.slice(0, 200);
+    // Proporción de celdas diligenciadas de la columna que son del tipo esperado
+    const ajuste = (i, tipo) => {
+        const llenas = muestra.map(f => f[i]).filter(v => textoCelda(v) !== "");
+        return llenas.length ? llenas.filter(TIPOS_DATO[tipo]).length / llenas.length : 0;
+    };
+    const buscar = (campo, pred, tipo, reservarResto = false) => {
+        if (r[campo] >= 0) return;
+        const candidatos = n.map((h, k) => !usado.has(k) && pred(h) ? k : -1).filter(k => k >= 0);
+        if (!candidatos.length) { r[campo] = -1; return; }
+        // Con varios candidatos gana el que más se parece al tipo de dato esperado; a igualdad, el primero
+        const elegido = tipo ? candidatos.reduce((mejor, k) => ajuste(k, tipo) > ajuste(mejor, tipo) ? k : mejor) : candidatos[0];
+        r[campo] = elegido;
+        usado.add(elegido);
+        if (reservarResto) candidatos.forEach(k => usado.add(k));   // la otra «Cuenta» (código/NIT) no se usa para otro campo
+    };
     buscar("hora_inicio", h => h.startsWith("hora") && /inicio|start/.test(h) && !h.includes("fecha"));
     buscar("hora_fin", h => h.startsWith("hora") && /fin|final|end/.test(h) && !h.includes("fecha"));
-    buscar("fecha_inicio", h => /inicio|start/.test(h) && !/fin|final|end|creacion|registro/.test(h));
-    buscar("fecha_fin", h => /(fecha|date).*(fin|final|end)|^(fin|final|end)\b/.test(h));
-    buscar("horas", h => /^horas?\b|duracion|tiempo|hours/.test(h));
-    buscar("cliente", h => /cuenta|cliente|customer|account/.test(h));
-    buscar("correo", h => /correo|e-?mail|mail/.test(h) && /responsable/.test(h));
-    buscar("correo", h => /correo|e-?mail|mail/.test(h));
-    buscar("responsable", h => /responsable|propietario|coordinador/.test(h) && !/correo|mail/.test(h));
-    buscar("actividad", h => /descripcion|actividad|detalle|tarea|description|asunto/.test(h) && !/tipo/.test(h));
-    buscar("recurso", h => /persona|recurso|consultor|asignado|resource/.test(h));
-    buscar("tipo", h => /tipo/.test(h));
-    buscar("accion", h => /accion/.test(h));
-    buscar("estado", h => /estado|status/.test(h));
+    buscar("fecha_inicio", h => /inicio|start/.test(h) && !/fin|final|end|creacion|registro/.test(h), "fecha");
+    buscar("fecha_fin", h => /(fecha|date).*(fin|final|end)|^(fin|final|end)\b/.test(h), "fecha");
+    buscar("horas", h => /^horas?\b|duracion|tiempo|hours/.test(h), "numero");
+    buscar("cliente", h => /cuenta|cliente|customer|account|razon social/.test(h), "texto", true);
+    buscar("correo", h => /correo|e-?mail|mail/.test(h) && /responsable/.test(h), "correo");
+    buscar("correo", h => /correo|e-?mail|mail/.test(h), "correo");
+    buscar("responsable", h => /responsable|propietario|coordinador/.test(h) && !/correo|mail/.test(h), "texto");
+    buscar("actividad", h => /descripcion|actividad|detalle|tarea|description|asunto/.test(h) && !/tipo/.test(h), "texto");
+    buscar("recurso", h => /persona|recurso|consultor|asignado|resource/.test(h), "texto");
+    buscar("tipo", h => /tipo/.test(h), "texto");
+    buscar("accion", h => /accion/.test(h), "texto");
+    buscar("estado", h => /estado|status/.test(h), "texto");
     for (const [c] of CAMPOS) if (!(c in r)) r[c] = -1;
     return r;
 }
@@ -1019,13 +1032,30 @@ REGLAS CRÍTICAS DE EXTRACCIÓN Y PROCESAMIENTO:
 FORMATO DE RESPUESTA: responde SOLO con un objeto JSON, sin texto adicional:
 {"actividades": ["Actividad 1 redactada", "Actividad 2 redactada"], "observaciones": "Texto o Ninguna", "destinatario": "correo@cliente.com o vacío"}`;
 
+    // Destinatario: el Responsable (Cliente). Si es un nombre, se busca su correo en Outlook (Microsoft 365)
+    let correoResponsable = CORREO_RE.test(responsable) ? responsable : null;
+    if (!correoResponsable && responsable !== "Responsable" && cap.mcp) {
+        estadoProceso(`Buscando el correo de ${responsable} en Microsoft 365…`);
+        try { correoResponsable = await buscarCorreo(responsable); }
+        catch (e) { if (e?.code === "cancelled") throw e; avisos.push("No se pudo consultar Microsoft 365: revisa el destinatario en «Para»."); }
+    } else if (!correoResponsable && responsable !== "Responsable" && !cap.mcp) {
+        avisos.push("Para buscar el correo del responsable en Outlook, abre el artefacto en claude.ai con Microsoft 365 conectado.");
+    }
     estadoProceso("Claude está redactando el acta de consultoría…");
     const r = await pedirJSON(prompt, imagenes.length ? { images: imagenes } : {});
     const actividades = (Array.isArray(r?.actividades) ? r.actividades : []).map(a => capitalizar(String(a))).filter(Boolean);
     if (!actividades.length) { errorGeneral("Claude no encontró actividades en los insumos. Agrega más detalle e inténtalo de nuevo."); return null; }
     const destinatario = String(r.destinatario || "").trim();
-    const para = CORREO_RE.test(destinatario) ? destinatario : responsable;
-    if (!CORREO_RE.test(para)) avisos.push("No se encontró el correo del responsable: escríbelo en el campo «Para» antes de generar.");
+    let para = responsable;
+    if (correoResponsable) {
+        para = correoResponsable;
+        if (correoResponsable !== responsable) avisos.push(`Correo de ${responsable} tomado de Microsoft 365: ${correoResponsable}. Verifícalo antes de enviar.`);
+    } else if (CORREO_RE.test(destinatario)) {
+        para = destinatario;
+        avisos.push(`No se encontró a ${responsable} en Microsoft 365; se usó el correo que aparece en los insumos: ${destinatario}.`);
+    } else if (responsable !== "Responsable") {
+        avisos.push(`No se encontró el correo de ${responsable} en Microsoft 365: el destinatario quedó con su nombre. Escribe el correo en «Para» si lo conoces.`);
+    } else avisos.push("No indicaste el responsable del cliente: escribe el destinatario en «Para» antes de generar.");
     const fechaD = f ? new Date(f + "T00:00") : null;
     return {
         tipo: "consultoria", avisos,
