@@ -213,6 +213,11 @@
                         </div>
                         <!-- Vista previa del Excel (implementación): se calcula en el navegador, sin Claude -->
                         <div id="previaExcel" class="mb-3 space-y-2" hidden></div>
+                        <label id="bloqueCalendario" class="flex items-start gap-2 text-xs mb-3 aviso aviso-info" hidden>
+                            <input type="checkbox" id="usar_calendario" class="mt-0.5" checked>
+                            <span><strong>📅 Usar la descripción de mis sesiones de Outlook</strong><br>
+                            Si una sesión del mismo cliente cae en el bloque de la actividad, el acta usa el título de esa sesión en lugar del texto de Synergy. En la revisión puedes volver al texto de Synergy.</span>
+                        </label>
                         <div>
                             <label for="informacion_extra" class="etiqueta">✍️ Notas o Instrucciones Extras</label>
                             <textarea id="informacion_extra" rows="3" class="campo" placeholder="Ingresa notas o indicaciones especiales..." data-borrador></textarea>
@@ -565,6 +570,11 @@ function analizarExcel(numeroMes, anio) {
             res.clientes.get(llave).filas.push({
                 actividadOriginal: actividad,
                 orden: new Date(inicio.getFullYear(), inicio.getMonth(), inicio.getDate(), hh, mm).getTime(),
+                finOrden: (() => {   // fin del bloque: la fecha de fin si es coherente; si no, inicio + horas
+                    const desde = new Date(inicio.getFullYear(), inicio.getMonth(), inicio.getDate(), hh, mm).getTime();
+                    const f = ix.fecha_fin >= 0 ? aFecha(fila[ix.fecha_fin]) : null;
+                    return f && f.getTime() > desde ? f.getTime() : desde + horas * 3600000;
+                })(),
                 fecha: fmtFecha(inicio), horaInicio: horaIni || "—", horaFin: horaDe(fila, ix.fecha_fin, ix.hora_fin) || "—",
                 horas: redondear(horas),
                 recurso: ix.recurso >= 0 ? textoCelda(fila[ix.recurso]) : "",
@@ -857,6 +867,7 @@ function actualizarModo() {
     $("bloque-periodo-implementacion").hidden = !impl;
     $("bloque-periodo-consultoria").hidden = impl;
     $("bloque-dictado").hidden = impl;
+    $("bloqueCalendario").hidden = !impl;
     $("lblArchivos").textContent = impl ? "📊 Archivo Excel de actividades (.xlsx, .xls)" : "📁 Archivos de Respaldo (.xlsx, .pdf, .docx, .txt, .csv, imágenes)";
     $("archivos").accept = impl ? ".xlsx,.xls" : ".xlsx,.xls,.pdf,.docx,.txt,.csv,.md,.json,.log,.sql,.png,.jpg,.jpeg,.webp";
     $("archivos").multiple = !impl;
@@ -1127,12 +1138,83 @@ async function completarCorreosResponsables(actas, avisos) {
     if (sinCorreo.length) avisos.push(`No se encontró en Microsoft 365 el correo de: ${sinCorreo.join(", ")}. Escríbelo en «Para».`);
 }
 
+// ---------- Sesiones del calendario de Outlook (reemplazan la descripción de Synergy) ----------
+// Extrae los objetos JSON de un texto (cada bloque trae uno; se toleran varios seguidos)
+function objetosJSON(texto) {
+    const out = []; let prof = 0, ini = -1, enCadena = false, escape = false;
+    for (let i = 0; i < texto.length; i++) {
+        const ch = texto[i];
+        if (enCadena) { if (escape) escape = false; else if (ch === "\\") escape = true; else if (ch === '"') enCadena = false; continue; }
+        if (ch === '"') enCadena = true;
+        else if (ch === "{") { if (prof++ === 0) ini = i; }
+        else if (ch === "}" && --prof === 0 && ini >= 0) { try { out.push(JSON.parse(texto.slice(ini, i + 1))); } catch { } ini = -1; }
+    }
+    return out;
+}
+const fechaLocal = (s) => { const m = String(s || "").match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/); return m ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) : null; };
+const limpiarTitulo = (s) => String(s || "").replace(/^\s*((RV|RE|FW|FWD|TR)\s*:\s*)+/i, "").replace(/[\p{Extended_Pictographic}️‍]/gu, "").replace(/\s+/g, " ").trim();
+const esVerdadero = (v) => v === true || String(v).toLowerCase() === "true";
+async function leerCalendario(numeroMes, anio) {
+    const desde = `${anio}-${pad(numeroMes)}-01T00:00:00`;
+    const hasta = numeroMes === 12 ? `${anio + 1}-01-01T00:00:00` : `${anio}-${pad(numeroMes + 1)}-01T00:00:00`;
+    const dominioPropio = (perfil?.email || "").split("@")[1] || "consensussa.com";
+    const eventos = []; let offset = 0;
+    for (let vuelta = 0; vuelta < 40; vuelta++) {
+        const res = await cap.mcp.callTool(CONECTOR_M365, "outlook_calendar_search",
+            { query: "*", afterDateTime: desde, beforeDateTime: hasta, order: "oldest", limit: 25, offset }, { signal: controlador?.signal });
+        const objetos = (res?.content || []).filter(b => b?.type === "text").flatMap(b => objetosJSON(b.text));
+        let siguiente = null;
+        for (const o of objetos) {
+            if (o.subject !== undefined) eventos.push(o);
+            else if (o.moreResults && o.nextOffset != null) siguiente = +o.nextOffset;
+        }
+        if (siguiente == null || siguiente <= offset) break;
+        offset = siguiente;
+    }
+    return eventos.filter(e => !esVerdadero(e.isCancelled) && !esVerdadero(e.isAllDay) && e.start?.dateTime).map(e => ({
+        titulo: limpiarTitulo(e.subject),
+        inicio: fechaLocal(e.start.dateTime)?.getTime(), fin: fechaLocal(e.end?.dateTime || e.start.dateTime)?.getTime(),
+        dominios: [...new Set((Array.isArray(e.attendees) ? e.attendees : []).map(a => String(a?.address || a).split("@")[1] || "")
+            .map(d => d.toLowerCase()).filter(d => d && d !== dominioPropio))],
+    })).filter(e => e.titulo && e.inicio && e.fin);
+}
+const PALABRAS_GENERICAS = new Set(["sas", "ltda", "colombia", "international", "internacional", "pharma", "consensus", "company", "group", "grupo", "sucursal", "sociedad", "comercial", "servicios"]);
+const clavesCliente = (cliente) => tokens(cliente).filter(t => t.length > 3 && !PALABRAS_GENERICAS.has(t));
+// Sesiones del mismo cliente que se cruzan con el bloque de la actividad
+function sesionesDe(fila, cliente, eventos) {
+    const claves = clavesCliente(cliente), palabras = new Set(tokens(fila.actividadOriginal).filter(t => t.length > 3 && !PALABRAS_GENERICAS.has(t)));
+    return eventos.filter(e => e.inicio < fila.finOrden && e.fin > fila.orden && (claves.length
+        ? claves.some(k => normalizar(e.titulo).includes(k) || e.dominios.some(d => d.includes(k)))
+        // Cliente interno (sin nombre distintivo): sesión sin invitados externos y con palabras en común
+        : !e.dominios.length && tokens(e.titulo).some(t => palabras.has(t))));
+}
+async function aplicarCalendario(actas, numeroMes, anio, avisos) {
+    if (!$("usar_calendario").checked) return;
+    if (!cap.mcp) { avisos.push("Para usar las sesiones de tu calendario de Outlook, abre el artefacto en claude.ai con Microsoft 365 conectado."); return; }
+    estadoProceso("Revisando tu calendario de Outlook…");
+    let eventos;
+    try { eventos = await leerCalendario(numeroMes, anio); }
+    catch (e) {
+        if (e?.code === "cancelled") throw e;
+        avisos.push("No se pudo leer tu calendario de Outlook: se usaron las descripciones de Synergy.");
+        return;
+    }
+    let cambiadas = 0;
+    for (const a of actas) for (const f of a.datos.filasCrudas) {
+        const titulos = [...new Set(sesionesDe(f, a.cliente, eventos).map(e => e.titulo))];
+        if (titulos.length) { f.calendario = titulos.join("; "); cambiadas++; }
+    }
+    avisos.push(cambiadas
+        ? `${plural(cambiadas, "actividad usa", "actividades usan")} el título de su sesión en Outlook (marcadas con 📅). Revísalas y vuelve al texto de Synergy si alguna no corresponde.`
+        : "No se encontraron sesiones de Outlook del mismo cliente en los bloques de las actividades: se usaron las descripciones de Synergy.");
+}
+
 // ---------- Análisis: implementación ----------
 async function corregirCliente(acta, indicaciones) {
     const filas = acta.datos.filasCrudas, lote = 120, corregidas = [], descartar = new Set(); let observacion = "";
     for (let ini = 0; ini < filas.length; ini += lote) {
         const parte = filas.slice(ini, ini + lote);
-        const lista = parte.map((f, k) => JSON.stringify({ i: ini + k, actividad: f.actividadOriginal, accion: f.accion || undefined, estado: f.estado || undefined })).join("\n");
+        const lista = parte.map((f, k) => JSON.stringify({ i: ini + k, actividad: f.calendario || f.actividadOriginal, accion: f.accion || undefined, estado: f.estado || undefined })).join("\n");
         const r = await pedirJSON(`ACTÚA COMO UN SISTEMA DE AUTOMATIZACIÓN DE REPORTES PARA CONSENSUS S.A.S. Cliente: ${acta.cliente}.
 ${indicaciones ? `Indicaciones del consultor: ${indicaciones}\n` : ""}
 Actividades registradas (una por línea, JSON):
@@ -1144,12 +1226,15 @@ Tareas:
 3. OBSERVACIÓN para el cliente: solo si los datos muestran información clara y relevante que el cliente deba conocer. Nada de control interno, nada sobre horas frente a intervalos horarios, nada genérico. Si no hay, cadena vacía.
 
 Responde SOLO con JSON: {"actividades": ["..."], "descartar": [números i], "observacion": ""}`, { modelTier: "quick" });
-        const arr = Array.isArray(r?.actividades) && r.actividades.length === parte.length ? r.actividades : parte.map(f => f.actividadOriginal);
+        const arr = Array.isArray(r?.actividades) && r.actividades.length === parte.length ? r.actividades : parte.map(f => f.calendario || f.actividadOriginal);
         arr.forEach(a => corregidas.push(capitalizar(String(a))));
         (Array.isArray(r?.descartar) ? r.descartar : []).forEach(i => descartar.add(+i));
         if (!observacion && r?.observacion) observacion = String(r.observacion).trim();
     }
-    acta.datos.filas = filas.map((f, i) => ({ ...f, actividad: corregidas[i] || capitalizar(f.actividadOriginal) })).filter((_, i) => !descartar.has(i));
+    acta.datos.filas = filas.map((f, i) => {
+        const texto = corregidas[i] || capitalizar(f.calendario || f.actividadOriginal);
+        return { ...f, actividad: texto, origen: f.calendario ? "outlook" : "synergy", textoOutlook: f.calendario ? texto : "" };
+    }).filter((_, i) => !descartar.has(i));
     acta.datos.proyectadas = filas.filter((_, i) => descartar.has(i)).map(f => corregidas[filas.indexOf(f)] || f.actividadOriginal);
     acta.datos.observacion = observacion;
     acta.estado = acta.datos.filas.length ? "ok" : "vacia";
@@ -1200,6 +1285,7 @@ async function analizarImplementacion() {
         };
     });
     await completarCorreosResponsables(actas, avisos);
+    await aplicarCalendario(actas, MESES.indexOf(mes) + 1, anio, avisos);
     revision = { tipo: "implementacion", carpeta: `${mes}_${anio}`, avisos, actas, sel: 0, indicaciones: $("informacion_extra").value.trim() };
     mostrarPanel("revision"); renderRevision();
     const fatal = await procesarClientes(actas, revision.indicaciones);
@@ -1275,7 +1361,10 @@ function editorActa(a) {
         <div class="desplazable"><table class="tabla">
             <thead><tr><th>Actividad</th><th>Fecha</th><th>Inicio</th><th>Fin</th><th class="num">Horas</th><th></th></tr></thead>
             <tbody>${a.datos.filas.map((f, i) => `<tr>
-                <td style="min-width: 14rem"><textarea class="campo" rows="2" style="font-size: .75rem" data-fila="${i}" aria-label="Actividad del ${esc(f.fecha)}">${esc(f.actividad)}</textarea></td>
+                <td style="min-width: 14rem"><textarea class="campo" rows="2" style="font-size: .75rem" data-fila="${i}" aria-label="Actividad del ${esc(f.fecha)}">${esc(f.actividad)}</textarea>
+                    ${f.textoOutlook ? `<p class="text-[11px] mt-1 text-gray-600">${f.origen === "outlook"
+                        ? `📅 Sesión de Outlook · Synergy: «${esc(f.actividadOriginal)}» <button type="button" class="underline font-semibold" style="color: var(--sap-boton-hover)" data-accion="alternarOrigen" data-i="${i}">Usar Synergy</button>`
+                        : `Texto de Synergy · <button type="button" class="underline font-semibold" style="color: var(--sap-boton-hover)" data-accion="alternarOrigen" data-i="${i}">📅 Usar la sesión de Outlook</button>`}</p>` : ""}</td>
                 <td>${esc(f.fecha)}</td><td>${esc(f.horaInicio)}</td><td>${esc(f.horaFin)}</td><td class="num">${fmtNum(f.horas)}</td>
                 <td><button type="button" class="boton-icono" data-accion="quitarFila" data-i="${i}" aria-label="Quitar actividad">✕</button></td></tr>`).join("")}
             </tbody></table></div>
@@ -1316,6 +1405,12 @@ $("panelRevision").addEventListener("click", async (e) => {
         case "bajar": [lista[i + 1], lista[i]] = [lista[i], lista[i + 1]]; break;
         case "quitar": lista.splice(i, 1); break;
         case "agregar": lista.push(""); break;
+        case "alternarOrigen": {
+            const f = a.datos.filas[i];
+            if (f.origen === "outlook") { f.origen = "synergy"; f.actividad = capitalizar(f.actividadOriginal); }
+            else { f.origen = "outlook"; f.actividad = f.textoOutlook; }
+            break;
+        }
         case "quitarFila": a.datos.filas.splice(i, 1); if (!a.datos.filas.length) { a.estado = "vacia"; a.error = "Quitaste todas sus actividades; no se generará su acta."; } break;
         case "ampliar": abrirVista(a.cliente, htmlParaArchivo(htmlDeActa(a))); return;
         case "descartar": revision = null; mostrarPanel("vacio"); guardarBorrador(); return;
