@@ -327,10 +327,12 @@ const TELEFONO_DEFAULT = "601 7431624";
 const CLAVE_FIRMA = "consensus_firma_consultor";
 const CLAVE_BORRADOR = "consensus_borrador_v1";
 const CLAVE_GUIA = "consensus_guia_vista";
+const CLAVE_DIRECTORIO = "consensus_directorio_v1";
+const CONECTOR_M365 = "Microsoft 365";
 const CORREO_RE = /^[^\s@<>,;]+@[^\s@<>,;]+\.[^\s@<>,;]+$/;
 const $ = (id) => document.getElementById(id);
 
-const cap = { sample: null, user: null, db: null, downloads: null, dictation: null };
+const cap = { sample: null, user: null, db: null, downloads: null, dictation: null, mcp: null };
 let perfil = null;
 let idViewer = null;
 let tipoProceso = "consultoria";
@@ -488,7 +490,7 @@ async function leerInsumo(file) {
 const CAMPOS = [
     ["cliente", "Cliente / Cuenta", true], ["actividad", "Actividad / Descripción", true], ["fecha_inicio", "Fecha de inicio", true],
     ["horas", "Horas", true], ["fecha_fin", "Fecha de fin"], ["hora_inicio", "Hora inicio (si va aparte)"], ["hora_fin", "Hora fin (si va aparte)"],
-    ["recurso", "Persona / Recurso"], ["correo", "Correo responsable"], ["tipo", "Tipo de actividad"], ["accion", "Acción"], ["estado", "Estado"],
+    ["recurso", "Persona / Recurso"], ["correo", "Correo responsable"], ["responsable", "Responsable del proyecto (se busca su correo)"], ["tipo", "Tipo de actividad"], ["accion", "Acción"], ["estado", "Estado"],
 ];
 function detectarColumnas(encabezados, datos = []) {
     const n = encabezados.map(normalizar), usado = new Set(), r = {};
@@ -510,6 +512,7 @@ function detectarColumnas(encabezados, datos = []) {
     buscar("cliente", h => /cuenta|cliente|customer|account/.test(h));
     buscar("correo", h => /correo|e-?mail|mail/.test(h) && /responsable/.test(h));
     buscar("correo", h => /correo|e-?mail|mail/.test(h));
+    buscar("responsable", h => /responsable|propietario|coordinador/.test(h) && !/correo|mail/.test(h));
     buscar("actividad", h => /descripcion|actividad|detalle|tarea|description|asunto/.test(h) && !/tipo/.test(h));
     buscar("recurso", h => /persona|recurso|consultor|asignado|resource/.test(h));
     buscar("tipo", h => /tipo/.test(h));
@@ -553,6 +556,7 @@ function analizarExcel(numeroMes, anio) {
                 horas: redondear(horas),
                 recurso: ix.recurso >= 0 ? textoCelda(fila[ix.recurso]) : "",
                 correo: ix.correo >= 0 ? textoCelda(fila[ix.correo]) : "",
+                responsable: ix.responsable >= 0 ? textoCelda(fila[ix.responsable]) : "",
                 tipo: ix.tipo >= 0 ? textoCelda(fila[ix.tipo]) : "",
                 accion: ix.accion >= 0 ? textoCelda(fila[ix.accion]) : "",
                 estado: ix.estado >= 0 ? textoCelda(fila[ix.estado]) : "",
@@ -1035,6 +1039,64 @@ FORMATO DE RESPUESTA: responde SOLO con un objeto JSON, sin texto adicional:
     };
 }
 
+// ---------- Correos de responsables en Microsoft 365 ----------
+const tokens = (s) => normalizar(s).replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(t => t.length > 1);
+// Coincidencia segura: todas las palabras del nombre del directorio están en el nombre del Excel (mínimo dos)
+function mismaPersona(nombreDirectorio, nombreExcel) {
+    const d = tokens(nombreDirectorio), e = new Set(tokens(nombreExcel));
+    return d.length >= 2 && d.every(t => e.has(t));
+}
+function variantesNombre(nombre) {
+    const t = nombre.trim().split(/\s+/);
+    const v = [nombre.trim()];
+    if (t.length >= 4) v.push(`${t[0]} ${t[2]}`, `${t[1]} ${t[2]}`);   // dos nombres + dos apellidos
+    if (t.length >= 2) v.push(`${t[0]} ${t[1]}`);
+    return [...new Set(v)];
+}
+let directorio = new Map(Object.entries(leerLocal(CLAVE_DIRECTORIO) || {}));   // nombre normalizado -> correo
+async function buscarCorreo(nombre) {
+    const clave = normalizar(nombre);
+    if (directorio.has(clave)) return directorio.get(clave);
+    for (const consulta of variantesNombre(nombre)) {
+        const res = await cap.mcp.callTool(CONECTOR_M365, "search_people", { query: consulta, limit: 5 }, { signal: controlador?.signal });
+        const lista = Array.isArray(res?.payload) ? res.payload : (Array.isArray(res?.payload?.value) ? res.payload.value : []);
+        const hit = lista.find(p => CORREO_RE.test(String(p?.mail || "")) && !/no-?reply/i.test(p.mail) && mismaPersona(p.displayName || "", nombre));
+        if (hit) {
+            directorio.set(clave, hit.mail.toLowerCase());
+            escribirLocal(CLAVE_DIRECTORIO, Object.fromEntries(directorio));
+            return hit.mail.toLowerCase();
+        }
+    }
+    return null;
+}
+// Completa «Para» con el correo del responsable del proyecto cuando el Excel no trae correos
+async function completarCorreosResponsables(actas, avisos) {
+    const pendientes = actas.filter(a => a.para === "[Correo no encontrado]" && a.datos.filasCrudas.some(f => f.responsable));
+    if (!pendientes.length) return;
+    if (!cap.mcp) { avisos.push("Para buscar el correo de los responsables del proyecto, abre el artefacto en claude.ai con Microsoft 365 conectado."); return; }
+    const nombres = [...new Set(pendientes.flatMap(a => a.datos.filasCrudas.map(f => f.responsable).filter(Boolean)))];
+    const encontrados = new Map(), sinCorreo = [];
+    estadoProceso("Buscando correos de los responsables en Microsoft 365…");
+    for (const nombre of nombres) {
+        try {
+            const correo = await buscarCorreo(nombre);
+            correo ? encontrados.set(nombre, correo) : sinCorreo.push(nombre);
+        } catch (e) {
+            if (e?.code === "cancelled") throw e;
+            avisos.push(e?.code === "approval_required" || e?.code === "consent_required" || e?.code === "not_granted"
+                ? "No se permitió consultar Microsoft 365: escribe los destinatarios en «Para»."
+                : "No se pudo consultar Microsoft 365 en este momento: escribe los destinatarios en «Para».");
+            return;
+        }
+    }
+    for (const a of pendientes) {
+        const correos = [...new Set(a.datos.filasCrudas.map(f => encontrados.get(f.responsable)).filter(Boolean))];
+        if (correos.length) { a.para = correos.join(", "); a.origenPara = "Microsoft 365"; }
+    }
+    if (encontrados.size) avisos.push(`Correos tomados de Microsoft 365 según el responsable del proyecto (verifícalos): ${[...encontrados].map(([n, c]) => `${n} → ${c}`).join(" · ")}.`);
+    if (sinCorreo.length) avisos.push(`No se encontró en Microsoft 365 el correo de: ${sinCorreo.join(", ")}. Escríbelo en «Para».`);
+}
+
 // ---------- Análisis: implementación ----------
 async function corregirCliente(acta, indicaciones) {
     const filas = acta.datos.filasCrudas, lote = 120, corregidas = [], descartar = new Set(); let observacion = "";
@@ -1095,7 +1157,7 @@ async function analizarImplementacion() {
     if (r.duplicados) avisos.push(`${r.duplicados} registro(s) duplicado(s) exacto(s) descartado(s).`);
     if (r.horasCero) avisos.push(`${r.horasCero} registro(s) con horas en 0 descartado(s).`);
     if (r.incompletos) avisos.push(`${r.incompletos} registro(s) sin cliente, actividad o fecha descartado(s).`);
-    if (excelCargado.mapeos.every(m => m.correo < 0)) avisos.push("El Excel no trae columna de correo del responsable: escribe el destinatario en «Para» de cada cliente antes de generar.");
+    if (excelCargado.mapeos.every(m => m.correo < 0 && m.responsable < 0)) avisos.push("El Excel no trae columna de correo ni de responsable: escribe el destinatario en «Para» de cada cliente antes de generar.");
     const actas = [...r.clientes.values()].map(c => {
         const correos = [...new Set(c.filas.flatMap(f => f.correo.split(/[,;\s]+/)).map(s => s.trim().toLowerCase()).filter(s => CORREO_RE.test(s)))];
         const seguro = nombreSeguro(c.cliente, "Cliente");
@@ -1107,6 +1169,7 @@ async function analizarImplementacion() {
             datos: { cliente: c.cliente, mes, anio, filasCrudas: c.filas, filas: [], observacion: "", proyectadas: [] },
         };
     });
+    await completarCorreosResponsables(actas, avisos);
     revision = { tipo: "implementacion", carpeta: `${mes}_${anio}`, avisos, actas, sel: 0, indicaciones: $("informacion_extra").value.trim() };
     mostrarPanel("revision"); renderRevision();
     const fatal = await procesarClientes(actas, revision.indicaciones);
@@ -1445,7 +1508,7 @@ $("btnCerrarGuia").addEventListener("click", () => { escribirLocal(CLAVE_GUIA, t
     actualizarModo(); actualizarContador();
     if (revision) { mostrarPanel("revision"); renderRevision(); }
     const usar = (n) => (window.claude?.use ? window.claude.use(n).catch(() => null) : Promise.resolve(null));
-    [cap.sample, cap.user, cap.db, cap.downloads, cap.dictation] = await Promise.all(["sample", "user", "db", "downloads", "dictation"].map(usar));
+    [cap.sample, cap.user, cap.db, cap.downloads, cap.dictation, cap.mcp] = await Promise.all(["sample", "user", "db", "downloads", "dictation", "mcp"].map(usar));
     $("avisoSinClaude").hidden = !!cap.sample;
     $("btnSubmit").disabled = !cap.sample;
     iniciarDictado();
