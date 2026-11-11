@@ -1,30 +1,29 @@
 <title>Generador de Actas Consensus</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <script src="https://cdn.tailwindcss.com/3.4.17"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/quill/1.3.7/quill.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<style>__QUILL_CSS__</style>
 <style>
     /* Diseño SAP Fiori Horizon aprobado para la app: degradado azul, barra transparente, tarjetas blancas.
        Paleta de botones y selección de SAP Business One web (Belize). Aspecto único en claro y oscuro. */
     :root {
         --sap-boton: #5496cd; --sap-boton-hover: #427cac; --sap-claro: #8ec4f1; --sap-barra: #3f5161;
-        --tinta: #1d2d3e; --tinta-suave: #556b82; --tarjeta: #ffffff; --borde: #d5dde6;
+        --tinta: #1d2d3e; --tinta-suave: #556b82; --tarjeta: #ffffff; --borde: #d5dde6; --fondo-suave: #f4f7fa;
+        --error: #c62828; --ok: #1e7d4f; --aviso: #8a5a00;
         --fondo: linear-gradient(180deg, #12324f 0%, #2f5d86 30%, #7fa6c8 70%, #b9d2e6 100%);
         color-scheme: light;
     }
     body { background: #2f5d86; background-image: var(--fondo); background-attachment: fixed; color: var(--tinta);
            font-family: "72", "Segoe UI", "Helvetica Neue", Arial, sans-serif; min-height: 100%; }
+    [hidden] { display: none !important; }
     body ::selection { background: var(--sap-claro); color: var(--tinta); }
     body { accent-color: var(--sap-boton); }
     .gutter { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
     .fx-shell { display: flex; justify-content: space-between; align-items: center; gap: 1rem; min-height: 3.25rem; color: #fff; padding-block: .4rem; }
-    .fx-shell-izq, .fx-shell-der, .fx-usuario { display: flex; align-items: center; gap: .9rem; min-width: 0; }
+    .fx-shell-izq, .fx-shell-der { display: flex; align-items: center; gap: .9rem; min-width: 0; }
     .fx-logo { height: 1.9rem; width: auto; }
     .fx-titulo { font-weight: 700; font-size: 1.05rem; white-space: nowrap; }
     .fx-usuario-texto { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.1; }
@@ -44,30 +43,51 @@
     .etiqueta { display: block; font-size: .75rem; font-weight: 700; color: #4b5563; margin-bottom: .25rem; }
     .campo { width: 100%; padding: .5rem; border: 1px solid #8396a8; border-radius: .25rem; font-size: .875rem; background: #fff; color: var(--tinta); }
     .campo:focus { outline: none; border-color: var(--sap-boton); box-shadow: 0 0 0 2px var(--sap-claro); }
+    .campo-error, .campo-error:focus { border-color: var(--error); box-shadow: 0 0 0 2px rgba(198,40,40,.18); }
+    .error-campo { color: var(--error); font-size: .72rem; font-weight: 600; margin-top: .25rem; }
     .boton { background: var(--sap-boton); color: #fff; font-weight: 700; border-radius: .375rem; padding: .75rem 1rem; transition: background .15s; }
     .boton:hover { background: var(--sap-boton-hover); }
     .boton:disabled { opacity: .55; cursor: not-allowed; }
-    .boton-sec { background: #fff; border: 1px solid #c3ccd6; color: var(--sap-boton-hover); font-weight: 600; border-radius: .25rem; padding: .3rem .6rem; font-size: .72rem; }
+    .boton-sec { background: #fff; border: 1px solid #c3ccd6; color: var(--sap-boton-hover); font-weight: 600; border-radius: .25rem; padding: .3rem .6rem; font-size: .72rem; white-space: nowrap; }
     .boton-sec:hover { background: #f1f5f9; }
-    button:focus-visible, .campo:focus-visible, a:focus-visible { outline: 2px solid var(--sap-claro); outline-offset: 2px; }
+    .boton-sec:disabled { opacity: .5; cursor: not-allowed; }
+    .boton-icono { width: 1.75rem; height: 1.75rem; display: inline-grid; place-items: center; border-radius: .25rem; border: 1px solid #c3ccd6; background: #fff; color: var(--tinta-suave); font-size: .8rem; flex: none; }
+    .boton-icono:hover { background: #f1f5f9; color: var(--tinta); }
+    button:focus-visible, .campo:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid var(--sap-claro); outline-offset: 2px; }
     .archivo::file-selector-button { margin-right: 1rem; padding: .5rem 1rem; border-radius: .375rem; border: 0; font-size: .75rem; font-weight: 600; background: #eff6ff; color: var(--sap-boton-hover); }
-    .ql-toolbar.ql-snow, .ql-container.ql-snow { border-color: #e5e7eb; }
-    #editor-container { min-height: 420px; }
-    #editor-container table { border-collapse: collapse; font-size: .75rem; }
-    #editor-container td, #editor-container th { border: 1px solid #e5e7eb; padding: 2px 6px; }
+    .aviso { border-radius: .5rem; padding: .75rem 1rem; font-size: .8rem; }
+    .aviso-info { background: #eef6fd; border: 1px solid #b7d6f2; color: var(--tinta); }
+    .aviso-atencion { background: #fff8e6; border: 1px solid #f0d28a; color: var(--aviso); }
+    .aviso-error { background: #fdecec; border: 1px solid #f2b8b8; color: var(--error); }
+    .aviso-ok { background: #eaf7f0; border: 1px solid #a9dcc0; color: var(--ok); }
+    .chip { display: inline-flex; align-items: center; gap: .35rem; border: 1px solid var(--borde); background: #fff; border-radius: 999px; padding: .3rem .75rem; font-size: .75rem; font-weight: 600; color: var(--tinta); white-space: nowrap; }
+    .chip.activo { border-color: var(--sap-boton); background: #eaf3fb; color: var(--sap-boton-hover); }
+    .estado-punto { width: .5rem; height: .5rem; border-radius: 50%; flex: none; }
+    .tabla { width: 100%; border-collapse: collapse; font-size: .75rem; font-variant-numeric: tabular-nums; }
+    .tabla th { text-align: left; font-weight: 700; color: #4b5563; padding: .35rem .5rem; border-bottom: 1px solid var(--borde); white-space: nowrap; }
+    .tabla td { padding: .3rem .5rem; border-bottom: 1px solid #eef1f4; vertical-align: top; }
+    .tabla .num { text-align: right; }
+    .desplazable { overflow-x: auto; }
+    .vista-previa { width: 100%; height: 520px; border: 1px solid var(--borde); border-radius: .375rem; background: #f4f6f9; }
+    .pasos { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: .75rem; }
+    .paso { display: flex; gap: .6rem; align-items: flex-start; font-size: .8rem; }
+    .paso b { width: 1.5rem; height: 1.5rem; border-radius: 50%; background: var(--sap-boton); color: #fff; display: grid; place-items: center; font-size: .75rem; flex: none; }
+    .vacio { border: 1px dashed var(--borde); border-radius: .5rem; padding: 2rem 1rem; text-align: center; color: var(--tinta-suave); font-size: .85rem; }
     .modal { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow-y: auto;
              padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
     .modal-fondo-acceso { background: rgba(15, 23, 42, .9); backdrop-filter: blur(24px); }
     .modal-fondo { background: rgba(15, 23, 42, .6); }
-    .modal-caja { background: #fff; width: 100%; max-width: 28rem; border-radius: .75rem; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0,0,0,.4); }
+    .modal-caja { background: #fff; width: 100%; max-width: 30rem; border-radius: .75rem; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0,0,0,.4); }
     .modal-cabecera { background: var(--sap-boton); padding: 1rem 1.5rem; color: #fff; display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
-    .vista-previa { width: 100%; height: min(75vh, 900px); border: 0; background: #f4f6f9; }
+    .vista-previa-firma { border: 1px solid var(--borde); border-radius: .375rem; padding: .75rem; background: var(--fondo-suave); }
+    .girando { width: 1.6rem; height: 1.6rem; border-radius: 50%; border: 3px solid #d6e6f5; border-top-color: var(--sap-boton); animation: giro .8s linear infinite; margin: 0 auto; }
+    @keyframes giro { to { transform: rotate(360deg); } }
     .dictando { animation: latido 1.2s ease-in-out infinite; }
     @keyframes latido { 50% { opacity: .55; } }
-    @media (prefers-reduced-motion: reduce) { .dictando { animation: none; } }
+    @media (prefers-reduced-motion: reduce) { .dictando, .girando { animation: none; } }
     @media (max-width: 1024px) { .fx-usuario-texto { display: none; } }
     @media (max-width: 860px) { .fx-titulo { display: none; } }
-    @media (max-width: 640px) { .fx-logo { height: 1.3rem; } .fx-tabs { gap: 1.2rem; } .tarjeta { padding: 1rem; } }
+    @media (max-width: 640px) { .fx-logo { height: 1.3rem; } .fx-tabs { gap: 1.2rem; } .tarjeta { padding: 1rem; } .vista-previa { height: 420px; } }
 </style>
 
 <div id="appPrincipal" inert>
@@ -77,31 +97,49 @@
             <span class="fx-titulo">Generador de Actas</span>
         </div>
         <div class="fx-shell-der">
-            <div class="fx-usuario">
-                <div class="fx-usuario-texto">
-                    <span id="lblUsuarioNombre" class="fx-usuario-nombre"></span>
-                    <span id="lblUsuarioCargo" class="fx-usuario-cargo"></span>
-                </div>
-                <button type="button" id="btnAbrirPerfil" class="fx-shell-btn">⚙️ Mi Perfil</button>
-                <img id="imgAvatar" class="fx-avatar" alt="" hidden>
+            <div class="fx-usuario-texto">
+                <span id="lblUsuarioNombre" class="fx-usuario-nombre"></span>
+                <span id="lblUsuarioCargo" class="fx-usuario-cargo"></span>
             </div>
+            <button type="button" id="btnAbrirPerfil" class="fx-shell-btn">⚙️ Mi Perfil</button>
+            <img id="imgAvatar" class="fx-avatar" alt="" hidden>
         </div>
     </header>
-    <nav class="fx-tabs gutter" aria-label="Tipo de acta">
-        <button type="button" class="fx-tab" data-tipo="consultoria" id="tabConsultoria">Consultoría (Posventa)</button>
-        <button type="button" class="fx-tab" data-tipo="implementacion" id="tabImplementacion">Acta de Implementación (Excel)</button>
+    <nav class="fx-tabs gutter" aria-label="Secciones">
+        <button type="button" class="fx-tab" data-tipo="consultoria">Consultoría (Posventa)</button>
+        <button type="button" class="fx-tab" data-tipo="implementacion">Acta de Implementación (Excel)</button>
+        <button type="button" class="fx-tab" data-tipo="historial">🗂️ Mis actas</button>
     </nav>
 
     <main class="max-w-7xl mx-auto gutter" style="padding-block: 0 2.5rem">
         <h1 class="fx-grupo">✨ Generador Inteligente de Actas
             <span>Transforma notas, dictados o registros en actas estandarizadas de consultoría e implementación, redactadas con Claude.</span>
         </h1>
-        <div id="avisoSinClaude" class="hidden mb-4 p-3 rounded-lg bg-amber-50 border border-amber-300 text-amber-900 text-sm">
-            ⚠️ Para redactar actas abre este artefacto en claude.ai con tu cuenta de Consensus. Aquí no está disponible la conexión con Claude.
+
+        <div class="space-y-3 mb-4">
+            <div id="avisoSinClaude" class="aviso aviso-atencion" hidden>
+                ⚠️ Para redactar actas abre este artefacto en claude.ai con tu cuenta de Consensus. Aquí no está disponible la conexión con Claude.
+            </div>
+            <div id="guiaInicio" class="tarjeta" hidden>
+                <div class="flex flex-wrap items-start justify-between gap-3 mb-3">
+                    <h2 class="mb-0">👋 Así funciona</h2>
+                    <button type="button" id="btnCerrarGuia" class="boton-sec">Entendido</button>
+                </div>
+                <div class="pasos">
+                    <div class="paso"><b>1</b><span><strong>Elige el tipo de acta</strong> y completa los datos del cliente o adjunta el Excel del mes.</span></div>
+                    <div class="paso"><b>2</b><span><strong>Dicta, pega la transcripción o adjunta archivos.</strong> Claude redacta las actividades.</span></div>
+                    <div class="paso"><b>3</b><span><strong>Revisa y corrige</strong> lo que propone Claude, mirando la vista previa del correo.</span></div>
+                    <div class="paso"><b>4</b><span><strong>Genera y descarga</strong> el .html y el .eml. Quedan guardados en <em>Mis actas</em>.</span></div>
+                </div>
+            </div>
+            <div id="avisoBorrador" class="aviso aviso-info flex flex-wrap items-center justify-between gap-2" hidden>
+                <span id="textoBorrador"></span>
+                <button type="button" id="btnDescartarBorrador" class="boton-sec">Descartar borrador</button>
+            </div>
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <!-- Formulario -->
+        <!-- Vista de trabajo -->
+        <div id="vistaTrabajo" class="grid grid-cols-1 lg:grid-cols-2 gap-8">
             <section class="tarjeta">
                 <form id="formActa" class="space-y-4" novalidate>
                     <div>
@@ -109,39 +147,36 @@
                         <div class="space-y-3">
                             <div id="bloque-cliente" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div>
-                                    <label for="nombre_cliente" class="etiqueta">Nombre del Cliente <span class="text-red-500">*</span></label>
-                                    <input type="text" id="nombre_cliente" class="campo" placeholder="Ej: Industrias Acme S.A.">
+                                    <label for="nombre_cliente" class="etiqueta">Nombre del Cliente <span class="text-red-600">*</span></label>
+                                    <input type="text" id="nombre_cliente" class="campo" placeholder="Ej: Industrias Acme S.A." data-borrador>
                                 </div>
                                 <div>
                                     <label for="responsable_cliente" class="etiqueta">Responsable (Cliente)</label>
-                                    <input type="text" id="responsable_cliente" class="campo" placeholder="Ej: Ana Pérez o ana@cliente.com">
+                                    <input type="text" id="responsable_cliente" class="campo" placeholder="Ej: Ana Pérez o ana@cliente.com" data-borrador>
                                 </div>
                             </div>
-                            <p id="nota-cliente-excel" class="text-[11px] font-medium hidden" style="color: var(--sap-boton-hover)">
-                                ℹ️ En <b>Actas de Implementación</b>, los clientes y responsables se obtienen automáticamente del archivo Excel.
-                            </p>
-                            <div id="bloque-periodo-implementacion" class="hidden p-3 bg-blue-50/70 border border-blue-200 rounded-lg space-y-2">
+                            <div id="bloque-periodo-implementacion" class="p-3 bg-blue-50/70 border border-blue-200 rounded-lg space-y-2" hidden>
                                 <span class="etiqueta" style="color: var(--tinta)">📅 Período de Ejecución a Procesar (Filtro Estricto)</span>
                                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <div>
                                         <label for="mes_ejecucion" class="etiqueta">Mes</label>
-                                        <select id="mes_ejecucion" class="campo"></select>
+                                        <select id="mes_ejecucion" class="campo" data-borrador></select>
                                     </div>
                                     <div>
                                         <label for="anio_ejecucion" class="etiqueta">Año</label>
-                                        <input type="number" id="anio_ejecucion" min="2020" max="2035" class="campo">
+                                        <input type="number" id="anio_ejecucion" min="2020" max="2035" class="campo" data-borrador>
                                     </div>
                                 </div>
-                                <p class="text-[11px] text-amber-800 font-medium">⚠️ Solo se procesarán actividades cuya fecha de inicio sea de este mes y año.</p>
+                                <p class="text-[11px] font-medium" style="color: var(--aviso)">⚠️ Solo se procesan actividades cuya fecha de inicio sea de este mes y año. Clientes y responsables salen del Excel.</p>
                             </div>
                             <div id="bloque-periodo-consultoria" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div>
                                     <label for="fecha_ejecucion" class="etiqueta">Fecha de la Sesión</label>
-                                    <input type="date" id="fecha_ejecucion" class="campo">
+                                    <input type="date" id="fecha_ejecucion" class="campo" data-borrador>
                                 </div>
                                 <div>
                                     <label for="horas_ejecutadas" class="etiqueta">Cantidad de Horas</label>
-                                    <input type="number" step="0.5" min="0" id="horas_ejecutadas" class="campo" placeholder="Ej: 4.5">
+                                    <input type="number" step="0.5" min="0" id="horas_ejecutadas" class="campo" placeholder="Ej: 4.5" data-borrador>
                                 </div>
                             </div>
                         </div>
@@ -154,58 +189,68 @@
                             <span class="etiqueta">🎙️ Dictado de la sesión</span>
                             <div class="flex flex-wrap items-center gap-3">
                                 <button type="button" id="btnDictar" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg shadow text-sm">● Dictar</button>
-                                <span id="estadoDictado" class="text-xs text-gray-500 font-medium">Habla y el texto se agrega a la transcripción.</span>
+                                <span id="estadoDictado" class="text-xs text-gray-600 font-medium">Habla y el texto se agrega a la transcripción.</span>
+                                <span id="cronometroDictado" class="text-xs font-mono text-gray-600" hidden>00:00</span>
                             </div>
                             <p id="parcialDictado" class="text-xs italic text-gray-500 mt-2 min-h-[1rem]"></p>
-                            <p id="sinDictado" class="hidden text-xs text-gray-500 mt-1">El dictado funciona en Chrome, Edge o la app de escritorio de Claude. También puedes pegar la transcripción de Teams abajo.</p>
-                            <label for="transcripcion" class="etiqueta mt-2">Transcripción de la sesión</label>
-                            <textarea id="transcripcion" rows="4" class="campo" placeholder="Aquí aparece lo que dictas, o pega la transcripción de la reunión..."></textarea>
+                            <p id="sinDictado" class="text-xs text-gray-600 mt-1" hidden>El dictado funciona en Chrome, Edge o la app de escritorio de Claude. También puedes pegar la transcripción de Teams abajo.</p>
+                            <div class="flex items-end justify-between gap-2 mt-2">
+                                <label for="transcripcion" class="etiqueta mb-1">Transcripción de la sesión</label>
+                                <span id="contadorPalabras" class="text-[11px] text-gray-500 mb-1">0 palabras</span>
+                            </div>
+                            <textarea id="transcripcion" rows="4" class="campo" placeholder="Aquí aparece lo que dictas, o pega la transcripción de la reunión..." data-borrador></textarea>
                         </div>
                         <div class="mb-3">
                             <label for="archivos" id="lblArchivos" class="etiqueta">📁 Archivos de Respaldo (.xlsx, .pdf, .docx, .txt, .csv, imágenes)</label>
-                            <input type="file" id="archivos" multiple class="archivo block w-full text-xs text-gray-500"
-                                accept=".xlsx,.xls,.pdf,.docx,.txt,.csv,.md,.json,.log,.sql,.png,.jpg,.jpeg,.webp">
+                            <input type="file" id="archivos" multiple class="archivo block w-full text-xs text-gray-600">
                             <p id="listaArchivos" class="text-[11px] text-gray-500 mt-1"></p>
                         </div>
+                        <!-- Vista previa del Excel (implementación): se calcula en el navegador, sin Claude -->
+                        <div id="previaExcel" class="mb-3 space-y-2" hidden></div>
                         <div>
                             <label for="informacion_extra" class="etiqueta">✍️ Notas o Instrucciones Extras</label>
-                            <textarea id="informacion_extra" rows="3" class="campo" placeholder="Ingresa notas o indicaciones especiales..."></textarea>
+                            <textarea id="informacion_extra" rows="3" class="campo" placeholder="Ingresa notas o indicaciones especiales..." data-borrador></textarea>
                         </div>
                     </div>
 
+                    <div id="errorFormulario" class="aviso aviso-error" hidden></div>
                     <div class="flex gap-2">
-                        <button type="submit" id="btnSubmit" class="boton flex-1">⚡ Elaborar Acta con Claude</button>
-                        <button type="button" id="btnDetener" class="boton-sec hidden">Detener</button>
+                        <button type="submit" id="btnSubmit" class="boton flex-1">⚡ Analizar con Claude</button>
+                        <button type="button" id="btnDetener" class="boton-sec" hidden>Detener</button>
                     </div>
+                    <p id="estadoProceso" class="text-center text-xs font-semibold" style="color: var(--sap-boton-hover)" aria-live="polite"></p>
                 </form>
             </section>
 
-            <!-- Resumen y archivos -->
-            <section class="tarjeta flex flex-col">
-                <div class="mb-3">
-                    <h2 class="mb-0">📄 Resumen de Generación y Archivos</h2>
-                    <div class="flex flex-wrap items-center gap-1.5 text-xs text-gray-500 mt-0.5">
-                        <span class="font-medium text-gray-600">📁 Carpeta del ZIP:</span>
-                        <span id="badgeCarpeta" class="font-mono bg-blue-50 border border-blue-200 px-2 py-0.5 rounded font-semibold text-[11px]" style="color: var(--sap-boton-hover)">—</span>
-                    </div>
+            <!-- Revisión, vista previa y archivos -->
+            <section class="tarjeta flex flex-col gap-3" aria-live="polite">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <h2 id="tituloPanel" class="mb-0">📄 Revisión y vista previa</h2>
+                    <span id="badgeCarpeta" class="font-mono bg-blue-50 border border-blue-200 px-2 py-0.5 rounded font-semibold text-[11px]" style="color: var(--sap-boton-hover)" hidden></span>
                 </div>
-                <div id="panel-descargas" class="hidden mb-3 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg space-y-2">
-                    <div class="flex flex-wrap items-center justify-between gap-2">
-                        <span class="text-xs font-bold" style="color: var(--tinta)">📦 Archivos Listos para Descargar</span>
-                        <button type="button" id="btnDescargarZip" class="px-3 py-1.5 text-white font-semibold rounded text-xs shadow-sm" style="background: var(--sap-boton)">⬇️ Descargar Todo (.ZIP)</button>
-                    </div>
-                    <div id="lista-archivos-descarga" class="text-xs space-y-1 pt-1.5 border-t border-blue-100"></div>
-                    <p class="text-[11px] text-gray-500">Cada correo se entrega dentro de un .ZIP junto con su .HTML. Descomprímelo y abre el .eml en Outlook: se abre como borrador listo para revisar y enviar.</p>
+                <div id="panelVacio" class="vacio">
+                    <p class="font-semibold" style="color: var(--tinta)">Aquí revisarás el acta antes de generarla</p>
+                    <p class="mt-1">Cuando Claude termine, podrás corregir actividades, destinatario y asunto, y ver el correo tal como llegará.</p>
                 </div>
-                <div id="editor-container" class="flex-grow text-sm bg-white"></div>
-                <div id="estado-proceso" class="mt-3 text-center text-xs text-gray-600" aria-live="polite"></div>
+                <div id="panelRevision" class="space-y-3" hidden></div>
+                <div id="panelArchivos" class="space-y-3" hidden></div>
             </section>
         </div>
+
+        <!-- Historial -->
+        <section id="vistaHistorial" class="tarjeta" hidden>
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <h2 class="mb-0">🗂️ Mis actas</h2>
+                <button type="button" id="btnRecargarHistorial" class="boton-sec">↻ Actualizar</button>
+            </div>
+            <p class="text-xs text-gray-600 mb-3">Las actas que generas se guardan aquí para volver a descargarlas. Solo tú puedes verlas.</p>
+            <div id="listaHistorial"></div>
+        </section>
     </main>
 </div>
 
-<!-- Firma obligatoria (sustituye el login de la app: la cuenta de claude.ai identifica al consultor) -->
-<div id="modalPerfil" class="modal modal-fondo-acceso">
+<!-- Firma obligatoria (la cuenta de claude.ai identifica al consultor) -->
+<div id="modalPerfil" class="modal modal-fondo-acceso" role="dialog" aria-modal="true" aria-labelledby="tituloPerfil">
     <div class="text-center mb-5">
         <img src="__LOGO__" alt="Consensus S.A.S." style="height: 2.6rem; width: auto; max-width: 90vw; margin: 0 auto .5rem">
         <p class="text-sm text-blue-200">✨ Generador Inteligente de Actas</p>
@@ -214,18 +259,22 @@
         <div class="modal-cabecera">
             <div>
                 <h2 id="tituloPerfil" class="text-lg font-bold">🔒 Configura tu firma</h2>
-                <p id="subtituloPerfil" class="text-xs text-blue-50">Las actas y correos saldrán firmados con estos datos. Solo tú puedes verlos.</p>
+                <p class="text-xs text-blue-50">Las actas y correos saldrán firmados con estos datos. Solo tú puedes verlos.</p>
             </div>
-            <button type="button" id="btnCerrarPerfil" class="hidden text-xl leading-none" aria-label="Cerrar">&times;</button>
+            <button type="button" id="btnCerrarPerfil" class="text-xl leading-none" aria-label="Cerrar" hidden>&times;</button>
         </div>
-        <form id="formPerfil" class="p-6 space-y-3">
+        <div id="perfilCargando" class="p-8 text-center text-sm text-gray-600">
+            <div class="girando mb-3"></div>
+            Cargando tu perfil…
+        </div>
+        <form id="formPerfil" class="p-6 space-y-3" novalidate hidden>
             <div>
-                <label for="perfil_nombre" class="etiqueta">Nombre completo <span class="text-red-500">*</span></label>
-                <input type="text" id="perfil_nombre" required maxlength="120" class="campo">
+                <label for="perfil_nombre" class="etiqueta">Nombre completo <span class="text-red-600">*</span></label>
+                <input type="text" id="perfil_nombre" maxlength="120" class="campo">
             </div>
             <div>
-                <label for="perfil_email" class="etiqueta">Correo corporativo (remitente del .eml) <span class="text-red-500">*</span></label>
-                <input type="email" id="perfil_email" required maxlength="120" class="campo" placeholder="usuario@consensussa.com">
+                <label for="perfil_email" class="etiqueta">Correo corporativo (remitente del .eml) <span class="text-red-600">*</span></label>
+                <input type="email" id="perfil_email" maxlength="120" class="campo" placeholder="usuario@consensussa.com">
             </div>
             <div>
                 <label for="perfil_cargo" class="etiqueta">Cargo</label>
@@ -241,49 +290,60 @@
                     <input type="tel" id="perfil_telefono" maxlength="40" class="campo" value="601 7431624">
                 </div>
             </div>
-            <p id="mensajePerfil" class="text-xs font-medium hidden"></p>
+            <div>
+                <span class="etiqueta">Así se verá tu firma</span>
+                <div id="previaFirma" class="vista-previa-firma"></div>
+            </div>
+            <p id="mensajePerfil" class="text-xs font-medium" hidden></p>
             <button type="submit" class="boton w-full">Guardar firma</button>
         </form>
     </div>
 </div>
 
-<!-- Vista previa del HTML generado -->
-<div id="modalVista" class="modal modal-fondo" hidden>
+<!-- Vista previa a pantalla completa -->
+<div id="modalVista" class="modal modal-fondo" role="dialog" aria-modal="true" aria-labelledby="tituloVista" hidden>
     <div class="modal-caja" style="max-width: 860px">
         <div class="modal-cabecera">
             <h2 id="tituloVista" class="text-sm font-bold truncate"></h2>
             <button type="button" id="btnCerrarVista" class="text-xl leading-none" aria-label="Cerrar">&times;</button>
         </div>
-        <iframe id="iframeVista" class="vista-previa" sandbox="" title="Vista previa del acta"></iframe>
+        <iframe id="iframeVista" class="vista-previa" style="height: min(75vh, 900px); border: 0; border-radius: 0" sandbox="" title="Vista previa del acta"></iframe>
     </div>
 </div>
 
 <script>
-const LOGO_URI = "__LOGO__";
 const FIRMA_B64 = "__FIRMA_B64__";
 const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 const CARGO_DEFAULT = "Consultor SAP Business One";
 const TELEFONO_DEFAULT = "601 7431624";
-const CLAVE_LOCAL = "consensus_firma_consultor";
+const CLAVE_FIRMA = "consensus_firma_consultor";
+const CLAVE_BORRADOR = "consensus_borrador_v1";
+const CLAVE_GUIA = "consensus_guia_vista";
+const CORREO_RE = /^[^\s@<>,;]+@[^\s@<>,;]+\.[^\s@<>,;]+$/;
 const $ = (id) => document.getElementById(id);
 
 const cap = { sample: null, user: null, db: null, downloads: null, dictation: null };
 let perfil = null;
 let idViewer = null;
-let archivosGenerados = [];   // [{cliente, carpeta, nombreHtml, html, nombreEml, eml}]
-let carpetaActual = "";
+let tipoProceso = "consultoria";
+let revision = null;             // actas propuestas por Claude, editables antes de generar
+let archivosGenerados = [];      // [{cliente, carpeta, nombreHtml, html, nombreEml, eml, para}]
+let excelCargado = null;         // {nombre, hojas, mapeos}
 let controlador = null;
 
 // ---------- Utilidades ----------
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const limpiarCampo = (s, max = 120) => String(s ?? "").replace(/[\r\n\t]+/g, " ").trim().slice(0, max);
 function nombreSeguro(texto, porDefecto) {
-    const n = String(texto ?? "").normalize("NFC").split("").map(c => /[\p{L}\p{N}_-]/u.test(c) ? c : "_").join("")
+    const n = [...String(texto ?? "").normalize("NFC")].map(c => /[\p{L}\p{N}_-]/u.test(c) ? c : "_").join("")
         .replace(/_+/g, "_").replace(/^[_-]+|[_-]+$/g, "").slice(0, 80);
     return n || porDefecto;
 }
-function normalizar(s) { return String(s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim(); }
-function capitalizar(s) { s = String(s ?? "").trim(); return s ? s[0].toUpperCase() + s.slice(1) : s; }
+const normalizar = (s) => String(s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+const capitalizar = (s) => { s = String(s ?? "").trim(); return s ? s[0].toUpperCase() + s.slice(1) : s; };
+const redondear = (n) => Math.round(n * 100) / 100;
+const plural = (n, uno, varios) => `${n} ${n === 1 ? uno : varios}`;
+const fmtNum = (n) => String(redondear(n)).replace(".", ",");
 function bytesABase64(u8) {
     let bin = "";
     for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
@@ -291,19 +351,38 @@ function bytesABase64(u8) {
 }
 const textoABase64 = (s) => bytesABase64(new TextEncoder().encode(s));
 const lineas76 = (b64) => b64.replace(/.{1,76}/g, "$&\r\n").trimEnd();
-function conLimite(ms, promesa) {
-    return Promise.race([promesa, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
+const conLimite = (ms, promesa) => Promise.race([promesa, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
+function retrasar(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+function leerLocal(clave) { try { return JSON.parse(localStorage.getItem(clave) || "null"); } catch { return null; } }
+function escribirLocal(clave, valor) { try { valor == null ? localStorage.removeItem(clave) : localStorage.setItem(clave, JSON.stringify(valor)); } catch { } }
+function estadoProceso(texto) { $("estadoProceso").textContent = texto; }
+
+// ---------- Validación en cada campo ----------
+function marcarError(id, mensaje) {
+    const campo = $(id);
+    campo.classList.add("campo-error");
+    campo.setAttribute("aria-invalid", "true");
+    let p = campo.parentElement.querySelector(".error-campo");
+    if (!p) { p = document.createElement("p"); p.className = "error-campo"; campo.insertAdjacentElement("afterend", p); }
+    p.textContent = mensaje;
+    campo.focus();
 }
-function setEstado(html) { $("estado-proceso").innerHTML = html; }
-function estadoProgreso(texto) { setEstado(`<span class="font-bold animate-pulse" style="color: var(--sap-boton-hover)">⏳ ${esc(texto)}</span>`); }
-function estadoError(texto) { setEstado(`<span class="text-red-600 font-bold">❌ ${esc(texto)}</span>`); }
+function limpiarErrores() {
+    document.querySelectorAll(".campo-error").forEach(c => { c.classList.remove("campo-error"); c.removeAttribute("aria-invalid"); });
+    document.querySelectorAll("#formActa .error-campo").forEach(p => p.remove());
+    $("errorFormulario").hidden = true;
+}
+function errorGeneral(mensaje) { $("errorFormulario").textContent = mensaje; $("errorFormulario").hidden = false; }
+document.addEventListener("input", (e) => {
+    if (e.target.classList?.contains("campo-error")) {
+        e.target.classList.remove("campo-error"); e.target.removeAttribute("aria-invalid");
+        e.target.parentElement.querySelector(".error-campo")?.remove();
+    }
+});
 
 // ---------- Fechas del Excel ----------
 function aFecha(v) {
-    if (v instanceof Date && !isNaN(v)) {
-        const d = new Date(Math.round(v.getTime() / 60000) * 60000);   // SheetJS puede traer segundos sueltos
-        return d;
-    }
+    if (v instanceof Date && !isNaN(v)) return new Date(Math.round(v.getTime() / 60000) * 60000);   // SheetJS puede traer segundos sueltos
     if (typeof v === "number" && isFinite(v) && v > 0) {
         const p = XLSX.SSF.parse_date_code(v);
         if (p) return new Date(p.y, p.m - 1, p.d, p.H, p.M);
@@ -359,7 +438,7 @@ async function leerExcel(file) {
     }
     return hojas;
 }
-// Mismo criterio que preparar_excel_para_prompt(): filtra solo si hay UNA columna de fecha de inicio identificable
+// Consultoría: mismo criterio que preparar_excel_para_prompt() (filtra solo si hay UNA columna de inicio)
 function filtrarHojaPorPeriodo(hoja, numeroMes, anio) {
     const candidatos = hoja.encabezados.map((h, i) => [normalizar(h), i]).filter(([n]) =>
         (n.includes("inicio") || n.includes("start")) && !["fin", "final", "end", "creacion", "registro"].some(t => n.includes(t))
@@ -374,10 +453,7 @@ async function textoPDF(file) {
     pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
     const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
     const paginas = [];
-    for (let i = 1; i <= pdf.numPages; i++) {
-        const c = await (await pdf.getPage(i)).getTextContent();
-        paginas.push(c.items.map(it => it.str).join(" "));
-    }
+    for (let i = 1; i <= pdf.numPages; i++) paginas.push((await (await pdf.getPage(i)).getTextContent()).items.map(it => it.str).join(" "));
     return paginas.join("\n");
 }
 async function leerInsumo(file) {
@@ -388,6 +464,114 @@ async function leerInsumo(file) {
     if (/\.(png|jpe?g|webp|gif)$/.test(n)) return { imagen: file };
     return { texto: await leerTexto(file), etiqueta: "Archivo Adjunto" };
 }
+
+// ---------- Columnas del Excel de implementación (detección local, corregible) ----------
+const CAMPOS = [
+    ["cliente", "Cliente / Cuenta", true], ["actividad", "Actividad / Descripción", true], ["fecha_inicio", "Fecha de inicio", true],
+    ["horas", "Horas", true], ["fecha_fin", "Fecha de fin"], ["hora_inicio", "Hora inicio (si va aparte)"], ["hora_fin", "Hora fin (si va aparte)"],
+    ["recurso", "Persona / Recurso"], ["correo", "Correo responsable"], ["tipo", "Tipo de actividad"], ["accion", "Acción"], ["estado", "Estado"],
+];
+function detectarColumnas(encabezados) {
+    const n = encabezados.map(normalizar), usado = new Set(), r = {};
+    const buscar = (campo, pred) => { if (r[campo] >= 0) return; const i = n.findIndex((h, k) => !usado.has(k) && pred(h)); r[campo] = i; if (i >= 0) usado.add(i); };
+    buscar("hora_inicio", h => h.startsWith("hora") && /inicio|start/.test(h) && !h.includes("fecha"));
+    buscar("hora_fin", h => h.startsWith("hora") && /fin|final|end/.test(h) && !h.includes("fecha"));
+    buscar("fecha_inicio", h => /inicio|start/.test(h) && !/fin|final|end|creacion|registro/.test(h));
+    buscar("fecha_fin", h => /(fecha|date).*(fin|final|end)|^(fin|final|end)\b/.test(h));
+    buscar("horas", h => /^horas?\b|duracion|tiempo|hours/.test(h));
+    buscar("cliente", h => /cuenta|cliente|customer|account/.test(h));
+    buscar("correo", h => /correo|e-?mail|mail/.test(h) && /responsable/.test(h));
+    buscar("correo", h => /correo|e-?mail|mail/.test(h));
+    buscar("actividad", h => /descripcion|actividad|detalle|tarea|description|asunto/.test(h) && !/tipo/.test(h));
+    buscar("recurso", h => /persona|recurso|consultor|asignado|resource/.test(h));
+    buscar("tipo", h => /tipo/.test(h));
+    buscar("accion", h => /accion/.test(h));
+    buscar("estado", h => /estado|status/.test(h));
+    for (const [c] of CAMPOS) if (!(c in r)) r[c] = -1;
+    return r;
+}
+function horaDe(fila, idxFecha, idxHora) {
+    if (idxHora >= 0) { const d = aFecha(fila[idxHora]); if (d) return fmtHora(d); const s = textoCelda(fila[idxHora]); if (/^\d{1,2}:\d{2}/.test(s)) return s.slice(0, 5).padStart(5, "0"); }
+    if (idxFecha >= 0) { const d = aFecha(fila[idxFecha]); if (d && (d.getHours() || d.getMinutes())) return fmtHora(d); }
+    return "";
+}
+// Filtra, limpia y agrupa por cliente en el navegador. Lo usan la vista previa y el análisis.
+function analizarExcel(numeroMes, anio) {
+    const res = { clientes: new Map(), total: 0, enPeriodo: 0, fuera: 0, duplicados: 0, incompletos: 0, horasCero: 0, hojasSinColumnas: [] };
+    const vistos = new Set();
+    excelCargado.hojas.forEach((hoja, h) => {
+        const ix = excelCargado.mapeos[h];
+        if (CAMPOS.filter(c => c[2]).some(([c]) => ix[c] < 0)) { res.hojasSinColumnas.push(hoja.nombre); return; }
+        for (const fila of hoja.datos) {
+            res.total++;
+            const clave = JSON.stringify(fila.map(textoCelda));
+            if (vistos.has(clave)) { res.duplicados++; continue; }
+            vistos.add(clave);
+            const cliente = textoCelda(fila[ix.cliente]), actividad = textoCelda(fila[ix.actividad]);
+            const inicio = aFecha(fila[ix.fecha_inicio]), horas = aNumero(fila[ix.horas]);
+            if (!cliente || !actividad || !inicio) { res.incompletos++; continue; }
+            if (!(inicio.getMonth() + 1 === numeroMes && inicio.getFullYear() === anio)) { res.fuera++; continue; }   // filtrado estricto
+            if (!(horas > 0)) { res.horasCero++; continue; }
+            res.enPeriodo++;
+            const llave = normalizar(cliente);
+            if (!res.clientes.has(llave)) res.clientes.set(llave, { cliente, filas: [] });
+            const horaIni = horaDe(fila, ix.fecha_inicio, ix.hora_inicio);
+            const [hh, mm] = horaIni ? horaIni.split(":").map(Number) : [0, 0];
+            res.clientes.get(llave).filas.push({
+                actividadOriginal: actividad,
+                orden: new Date(inicio.getFullYear(), inicio.getMonth(), inicio.getDate(), hh, mm).getTime(),
+                fecha: fmtFecha(inicio), horaInicio: horaIni || "—", horaFin: horaDe(fila, ix.fecha_fin, ix.hora_fin) || "—",
+                horas: redondear(horas),
+                recurso: ix.recurso >= 0 ? textoCelda(fila[ix.recurso]) : "",
+                correo: ix.correo >= 0 ? textoCelda(fila[ix.correo]) : "",
+                tipo: ix.tipo >= 0 ? textoCelda(fila[ix.tipo]) : "",
+                accion: ix.accion >= 0 ? textoCelda(fila[ix.accion]) : "",
+                estado: ix.estado >= 0 ? textoCelda(fila[ix.estado]) : "",
+            });
+        }
+    });
+    for (const c of res.clientes.values()) c.filas.sort((a, b) => a.orden - b.orden);   // cronológico por fecha y hora de inicio
+    return res;
+}
+function renderPreviaExcel() {
+    const caja = $("previaExcel");
+    if (tipoProceso !== "implementacion" || !excelCargado) { caja.hidden = true; return; }
+    const mes = $("mes_ejecucion").value, anio = parseInt($("anio_ejecucion").value, 10);
+    const r = analizarExcel(MESES.indexOf(mes) + 1, anio);
+    const horas = [...r.clientes.values()].reduce((s, c) => s + c.filas.reduce((t, f) => t + f.horas, 0), 0);
+    const descartes = [[r.duplicados, "duplicado exacto"], [r.horasCero, "con horas en 0"], [r.incompletos, "sin cliente, actividad o fecha"], [r.fuera, `de otros meses`]]
+        .filter(([n]) => n).map(([n, t]) => `${n} ${t}`).join(" · ");
+    const filasClientes = [...r.clientes.values()].map(c =>
+        `<tr><td>${esc(c.cliente)}</td><td class="num">${c.filas.length}</td><td class="num">${fmtNum(c.filas.reduce((s, f) => s + f.horas, 0))}</td></tr>`).join("");
+    const selects = excelCargado.hojas.map((hoja, h) => `
+        <div class="space-y-1">
+            ${excelCargado.hojas.length > 1 ? `<p class="text-[11px] font-bold">Hoja «${esc(hoja.nombre)}»</p>` : ""}
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            ${CAMPOS.map(([c, etiqueta, req]) => `<label class="text-[11px] text-gray-600">${etiqueta}${req ? ' <span class="text-red-600">*</span>' : ""}
+                <select class="campo" style="padding: .3rem; font-size: .75rem" data-hoja="${h}" data-campo-excel="${c}">
+                    <option value="-1">— Ninguna —</option>
+                    ${hoja.encabezados.map((e, i) => `<option value="${i}"${excelCargado.mapeos[h][c] === i ? " selected" : ""}>${esc(e)}</option>`).join("")}
+                </select></label>`).join("")}
+            </div>
+        </div>`).join("");
+    const faltan = r.hojasSinColumnas.length > 0;
+    caja.innerHTML = `
+        <div class="aviso ${r.clientes.size ? "aviso-ok" : "aviso-atencion"}">
+            <p class="font-bold">${r.clientes.size ? `📊 ${r.enPeriodo} actividades de ${esc(mes)} ${anio} · ${r.clientes.size} cliente(s) · ${fmtNum(horas)} horas`
+                : `No hay actividades con fecha de inicio en ${esc(mes)} ${anio}.`}</p>
+            ${descartes ? `<p class="mt-1 text-[11px]">Se descartan: ${descartes}.</p>` : ""}
+            ${faltan ? `<p class="mt-1 text-[11px] font-semibold" style="color: var(--error)">Falta identificar columnas obligatorias en: ${r.hojasSinColumnas.map(esc).join(", ")}. Corrígelas abajo.</p>` : ""}
+        </div>
+        ${r.clientes.size ? `<div class="desplazable"><table class="tabla"><thead><tr><th>Cliente</th><th class="num">Actividades</th><th class="num">Horas</th></tr></thead><tbody>${filasClientes}</tbody></table></div>` : ""}
+        <details ${faltan ? "open" : ""} class="text-xs"><summary class="cursor-pointer font-semibold" style="color: var(--sap-boton-hover)">Columnas detectadas (corrige si alguna no es la correcta)</summary>
+            <div class="mt-2 space-y-2">${selects}</div></details>`;
+    caja.hidden = false;
+}
+$("previaExcel").addEventListener("change", (e) => {
+    const s = e.target.closest("[data-campo-excel]"); if (!s) return;
+    excelCargado.mapeos[+s.dataset.hoja][s.dataset.campoExcel] = +s.value;
+    renderPreviaExcel();
+});
 
 // ---------- Claude ----------
 function mensajeClaude(e) {
@@ -404,12 +588,13 @@ function mensajeClaude(e) {
     };
     return m[e?.code] || "Falló la conexión con Claude. Inténtalo de nuevo.";
 }
-async function pedirJSON(prompt, opciones = {}) {
-    if (!cap.sample) throw { code: "sampling_disabled" };
+const ERRORES_FATALES = new Set(["cancelled", "not_granted", "rate_limited", "sampling_disabled", "session_expired"]);
+function pedirJSON(prompt, opciones = {}) {
+    if (!cap.sample) return Promise.reject({ code: "sampling_disabled" });
     return cap.sample.json(prompt, { signal: controlador?.signal, ...opciones });
 }
 
-// ---------- Firma, HTML y EML ----------
+// ---------- Plantillas del correo (mismo diseño que la app) ----------
 function firmaHTML(p) {
     return `<div style="border-top: 1px solid #e0e0e0; padding-top: 20px; font-size: 13px; color: #333333; line-height: 1.4;">
           <p style="margin: 0 0 5px 0;">Cordialmente,</p>
@@ -447,7 +632,7 @@ ${cuerpo}
 </body>
 </html>`;
 }
-const PARRAFOS_CONFIRMACION = (texto) => `        <p style="margin: 0 0 12px 0; font-size: 13px; line-height: 1.5; color: #4a5568;">
+const parrafosConfirmacion = (texto) => `        <p style="margin: 0 0 12px 0; font-size: 13px; line-height: 1.5; color: #4a5568;">
           ${texto}
         </p>
         <p style="margin: 0 0 25px 0; font-size: 13px; line-height: 1.5; color: #4a5568;">
@@ -456,7 +641,7 @@ const PARRAFOS_CONFIRMACION = (texto) => `        <p style="margin: 0 0 12px 0; 
 const detalle = (etiqueta, valor) => `          <p style="margin: 4px 0; font-size: 13px;"><strong>${esc(etiqueta)}:</strong> ${esc(valor)}</p>`;
 
 function htmlConsultoria(d) {
-    const actividades = d.actividades.map(a => `            <li style="margin-bottom: 8px;">${esc(a)}</li>`).join("\n");
+    const actividades = d.actividades.filter(a => a.trim()).map(a => `            <li style="margin-bottom: 8px;">${esc(a)}</li>`).join("\n");
     return documentoCorreo("Confirmación de Consultoría SAP Business One", "Confirmación de Consultoría Posventa - SAP Business One", `
         <p style="margin: 0 0 12px 0; font-size: 14px; line-height: 1.5;">Buen día, <strong>${esc(d.cliente)}</strong>.</p>
         <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.5;">Mediante el presente, me permito confirmar la consultoría prestada, en la cual se llevaron a cabo las siguientes actividades:</p>
@@ -471,28 +656,41 @@ ${actividades}
 ${detalle("Responsable de la actividad", d.responsable)}
 ${detalle("Fecha de ejecución", d.fecha)}
 ${detalle("Tiempo total ejecutado", `${d.horas} horas`)}
-${detalle("Observaciones", d.observaciones || "Ninguna")}
+${detalle("Observaciones", d.observaciones.trim() || "Ninguna")}
         </div>
-${PARRAFOS_CONFIRMACION("Lo anterior con la finalidad de confirmar los procesos realizados durante la sesión remota y su aprobación mediante la respuesta de este correo.")}`);
+${parrafosConfirmacion("Lo anterior con la finalidad de confirmar los procesos realizados durante la sesión remota y su aprobación mediante la respuesta de este correo.")}`);
 }
-
-function htmlImplementacion(c, mes, anio) {
+// Totales, recursos y actividades principales se recalculan con lo que deje el consultor en la revisión
+function resumenImplementacion(d) {
+    const filas = d.filas.filter(f => f.actividad.trim());
+    const porActividad = new Map();
+    filas.forEach(f => porActividad.set(f.actividad, (porActividad.get(f.actividad) || 0) + f.horas));
+    return {
+        filas,
+        totalHoras: redondear(filas.reduce((s, f) => s + f.horas, 0)),
+        recursos: [...new Set(filas.map(f => f.recurso).filter(Boolean))],
+        tipos: [...new Set(filas.map(f => f.tipo).filter(Boolean))],
+        principales: [...porActividad.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([a]) => a),
+    };
+}
+function htmlImplementacion(d) {
+    const r = resumenImplementacion(d);
     const celda = (v, centro) => `<td${centro ? ' align="center"' : ""} style="padding: 7px 8px; border: 1px solid #e2e8f0;${centro ? " white-space: nowrap;" : ""}">${esc(v)}</td>`;
     const th = (v, centro) => `<th align="${centro ? "center" : "left"}" style="padding: 8px; border: 1px solid #d0d7de;${centro ? " white-space: nowrap;" : ""}">${v}</th>`;
-    const filas = c.filas.map(f => `              <tr>${celda(f.actividad)}${celda(f.fecha, 1)}${celda(f.horaInicio, 1)}${celda(f.horaFin, 1)}${celda(f.horas, 1)}</tr>`).join("\n");
+    const filas = r.filas.map(f => `              <tr>${celda(f.actividad)}${celda(f.fecha, 1)}${celda(f.horaInicio, 1)}${celda(f.horaFin, 1)}${celda(f.horas, 1)}</tr>`).join("\n");
     const lineas = [
-        detalle("Período", `${mes} ${anio}`),
-        detalle("Cliente", c.cliente),
-        detalle("Cantidad de actividades", c.filas.length),
-        detalle("Horas registradas", c.totalHoras),
-        c.tipos.length ? detalle("Tipo de actividad", c.tipos.join(", ")) : "",
-        detalle("Recursos participantes", c.recursos.join(", ") || "—"),
-        detalle("Actividades principales", c.principales.join("; ")),
-        `          <p style="margin: 4px 0; font-size: 13px;"><strong>Observaciones:</strong> ${esc(c.observacion)}</p>`,
+        detalle("Período", `${d.mes} ${d.anio}`),
+        detalle("Cliente", d.cliente),
+        detalle("Cantidad de actividades", r.filas.length),
+        detalle("Horas registradas", r.totalHoras),
+        r.tipos.length ? detalle("Tipo de actividad", r.tipos.join(", ")) : "",
+        detalle("Recursos participantes", r.recursos.join(", ") || "—"),
+        detalle("Actividades principales", r.principales.join("; ")),
+        `          <p style="margin: 4px 0; font-size: 13px;"><strong>Observaciones:</strong> ${esc(d.observacion)}</p>`,
     ].filter(Boolean).join("\n");
-    return documentoCorreo("Relación de actividades realizadas", `Relación de Actividades - ${mes} ${anio}`, `
+    return documentoCorreo("Relación de actividades realizadas", `Relación de Actividades - ${d.mes} ${d.anio}`, `
         <p style="margin: 0 0 12px 0; font-size: 14px; line-height: 1.5;">Buen día,</p>
-        <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.5;">Comparto la relación de actividades ejecutadas durante el mes de ${esc(mes)} de ${esc(anio)}.</p>
+        <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.5;">Comparto la relación de actividades ejecutadas durante el mes de ${esc(d.mes)} de ${esc(d.anio)}.</p>
         <div style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 18px 20px; margin-bottom: 25px;">
           <h3 style="margin: 0 0 12px 0; font-size: 15px; color: #003366; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px;">Actividades Realizadas</h3>
           <table border="0" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse; font-size: 12px; color: #2d3748;">
@@ -508,13 +706,13 @@ ${filas}
           <h3 style="margin: 0 0 10px 0; font-size: 14px; color: #003366; text-transform: uppercase; letter-spacing: 0.5px;">Detalles de la Sesión</h3>
 ${lineas}
         </div>
-${PARRAFOS_CONFIRMACION("Lo anterior con la finalidad de confirmar las actividades realizadas durante el período y su aprobación mediante la respuesta de este correo.")}`);
+${parrafosConfirmacion("Lo anterior con la finalidad de confirmar las actividades realizadas durante el período y su aprobación mediante la respuesta de este correo.")}`);
 }
-
+const htmlDeActa = (a) => a.tipo === "implementacion" ? htmlImplementacion(a.datos) : htmlConsultoria(a.datos);
 // HTML para navegador: la imagen de firma va incrustada en base64 (igual que main.py)
 const htmlParaArchivo = (html) => html.replace("cid:imagen_firma", `data:image/jpeg;base64,${FIRMA_B64}`);
 
-// Encabezado RFC 2047 en trozos para no romper caracteres UTF-8
+// ---------- .eml (igual que main.py: borrador X-Unsent, remitente = consultor, firma como CID) ----------
 function encabezadoMIME(texto) {
     if (/^[\x20-\x7e]*$/.test(texto)) return texto;
     const trozos = []; let actual = "";
@@ -525,65 +723,28 @@ function encabezadoMIME(texto) {
     if (actual) trozos.push(actual);
     return trozos.map(t => `=?utf-8?b?${textoABase64(t)}?=`).join("\r\n ");
 }
-// .eml como el de main.py: borrador (X-Unsent: 1), remitente = consultor, imagen de firma como recurso CID
-function construirEML({ para, asunto, html }) {
-    const alt = "==alt_" + Math.random().toString(36).slice(2);
-    const rel = "==rel_" + Math.random().toString(36).slice(2);
+function construirEML({ para, asunto, html, de }) {
+    const alt = "==alt_" + Math.random().toString(36).slice(2), rel = "==rel_" + Math.random().toString(36).slice(2);
     return [
-        `To: ${encabezadoMIME(para)}`,
-        `Subject: ${encabezadoMIME(asunto)}`,
-        `From: ${encabezadoMIME(perfil.nombre)} <${perfil.email}>`,
-        "X-Unsent: 1",
-        "MIME-Version: 1.0",
-        `Content-Type: multipart/alternative; boundary="${alt}"`,
-        "",
-        `--${alt}`,
-        'Content-Type: text/plain; charset="utf-8"',
-        "Content-Transfer-Encoding: base64",
-        "",
-        lineas76(textoABase64("Este es un correo en formato HTML. Por favor, utiliza un cliente de correo compatible.")),
-        "",
-        `--${alt}`,
-        `Content-Type: multipart/related; boundary="${rel}"`,
-        "",
-        `--${rel}`,
-        'Content-Type: text/html; charset="utf-8"',
-        "Content-Transfer-Encoding: base64",
-        "",
-        lineas76(textoABase64(html)),
-        "",
-        `--${rel}`,
-        "Content-Type: image/jpeg",
-        "Content-Transfer-Encoding: base64",
-        "Content-ID: <imagen_firma>",
-        'Content-Disposition: inline; filename="firma_consensus.jpg"',
-        "",
-        lineas76(FIRMA_B64),
-        "",
-        `--${rel}--`,
-        "",
-        `--${alt}--`,
-        "",
+        `To: ${encabezadoMIME(para)}`, `Subject: ${encabezadoMIME(asunto)}`, `From: ${encabezadoMIME(de.nombre)} <${de.email}>`,
+        "X-Unsent: 1", "MIME-Version: 1.0", `Content-Type: multipart/alternative; boundary="${alt}"`, "",
+        `--${alt}`, 'Content-Type: text/plain; charset="utf-8"', "Content-Transfer-Encoding: base64", "",
+        lineas76(textoABase64("Este es un correo en formato HTML. Por favor, utiliza un cliente de correo compatible.")), "",
+        `--${alt}`, `Content-Type: multipart/related; boundary="${rel}"`, "",
+        `--${rel}`, 'Content-Type: text/html; charset="utf-8"', "Content-Transfer-Encoding: base64", "", lineas76(textoABase64(html)), "",
+        `--${rel}`, "Content-Type: image/jpeg", "Content-Transfer-Encoding: base64", "Content-ID: <imagen_firma>",
+        'Content-Disposition: inline; filename="firma_consensus.jpg"', "", lineas76(FIRMA_B64), "",
+        `--${rel}--`, "", `--${alt}--`, "",
     ].join("\r\n");
 }
-// Igual que la app: si el nombre ya existe en este lote, agrega _2, _3...
-function registrarArchivos({ cliente, carpeta, baseHtml, baseEml, html, para, asunto }) {
-    let nombreHtml = `${baseHtml}.html`, nombreEml = `${baseEml}.eml`, n = 2;
-    while (archivosGenerados.some(a => a.nombreHtml === nombreHtml || a.nombreEml === nombreEml)) {
-        nombreHtml = `${baseHtml}_${n}.html`; nombreEml = `${baseEml}_${n}.eml`; n++;
-    }
-    const item = { cliente, carpeta, nombreHtml, html: htmlParaArchivo(html), nombreEml, eml: construirEML({ para, asunto, html }), para };
-    archivosGenerados.push(item);
-    return item;
-}
 
-// ---------- Descargas ----------
+// ---------- Descargas, copia para Outlook y vista previa ----------
 async function guardar(filename, data) {
-    if (!cap.downloads) { estadoError("La descarga no está disponible aquí. Abre el artefacto en claude.ai."); return; }
+    if (!cap.downloads) { avisoArchivos("La descarga no está disponible aquí. Abre el artefacto en claude.ai.", "error"); return; }
     try { await cap.downloads.save({ filename, data }); }
     catch (e) {
         if (e?.code === "declined") return;
-        estadoError(e?.code === "rate_limited" ? "Ya hay una descarga pendiente de confirmar." : "No se pudo descargar el archivo.");
+        avisoArchivos(e?.code === "rate_limited" ? "Ya hay una descarga pendiente de confirmar." : "No se pudo descargar el archivo.", "error");
     }
 }
 async function zipDe(items, conCarpeta) {
@@ -595,134 +756,197 @@ async function zipDe(items, conCarpeta) {
     }
     return zip.generateAsync({ type: "blob", compression: "DEFLATE" });
 }
-function pintarDescargas() {
-    const lista = $("lista-archivos-descarga");
-    lista.innerHTML = "";
-    archivosGenerados.forEach((a, i) => {
-        const fila = document.createElement("div");
-        fila.className = "flex flex-wrap items-center justify-between gap-2 py-1.5 border-b border-blue-100/70 last:border-0";
-        const nombre = document.createElement("span");
-        nombre.className = "font-bold text-gray-800 min-w-0 break-words";
-        nombre.textContent = a.cliente;
-        const acciones = document.createElement("div");
-        acciones.className = "flex flex-wrap items-center gap-1.5";
-        acciones.innerHTML = `<button type="button" class="boton-sec" data-ver="${i}">👁️ Ver HTML</button>
-            <button type="button" class="boton-sec" data-html="${i}">⬇️ HTML</button>
-            <button type="button" class="px-2.5 py-1 text-white rounded font-semibold text-[11px]" style="background: var(--sap-boton)" data-eml="${i}">📧 EML (Outlook)</button>`;
-        fila.append(nombre, acciones);
-        lista.append(fila);
-    });
-    $("panel-descargas").classList.toggle("hidden", !archivosGenerados.length);
+// Copia el acta con formato para pegarla en un correo nuevo de Outlook (depende de que el navegador lo permita)
+async function copiarParaOutlook(htmlArchivo, boton) {
+    const original = boton.textContent;
+    try {
+        if (!window.ClipboardItem || !navigator.clipboard?.write) throw new Error("sin soporte");
+        const cuerpo = htmlArchivo.slice(htmlArchivo.indexOf("<body"), htmlArchivo.lastIndexOf("</body>") + 7);
+        const texto = new DOMParser().parseFromString(htmlArchivo, "text/html").body.innerText;
+        await navigator.clipboard.write([new ClipboardItem({
+            "text/html": new Blob([cuerpo], { type: "text/html" }), "text/plain": new Blob([texto], { type: "text/plain" }),
+        })]);
+        boton.textContent = "✅ Copiado";
+    } catch {
+        boton.textContent = "No se pudo copiar";
+        avisoArchivos("Tu navegador no permite copiar con formato desde aquí. Usa el archivo .eml.", "atencion");
+    }
+    setTimeout(() => { boton.textContent = original; }, 2500);
 }
-$("lista-archivos-descarga").addEventListener("click", async (e) => {
-    const b = e.target.closest("button"); if (!b) return;
-    const a = archivosGenerados[+(b.dataset.ver ?? b.dataset.html ?? b.dataset.eml)];
-    if (b.dataset.ver !== undefined) {
-        $("tituloVista").textContent = a.nombreHtml;
-        $("iframeVista").srcdoc = a.html;
-        $("modalVista").hidden = false;
-    } else if (b.dataset.html !== undefined) {
-        await guardar(a.nombreHtml, new Blob([a.html], { type: "text/html" }));
-    } else {
-        await guardar(a.nombreEml.replace(/\.eml$/, ".zip"), await zipDe([a], false));
+let elementoAntesDeModal = null;
+function abrirModal(id) { elementoAntesDeModal = document.activeElement; $(id).hidden = false; $(id).querySelector("button, input, select, textarea")?.focus(); }
+function cerrarModal(id) { $(id).hidden = true; elementoAntesDeModal?.focus?.(); }
+function abrirVista(titulo, html) { $("tituloVista").textContent = titulo; $("iframeVista").srcdoc = html; abrirModal("modalVista"); }
+$("btnCerrarVista").addEventListener("click", () => { cerrarModal("modalVista"); $("iframeVista").srcdoc = ""; });
+// Esc cierra y el foco no se escapa de la ventana abierta
+document.addEventListener("keydown", (e) => {
+    const abierto = !$("modalVista").hidden ? $("modalVista") : (!$("modalPerfil").hidden ? $("modalPerfil") : null);
+    if (!abierto) return;
+    if (e.key === "Escape") {
+        if (abierto.id === "modalVista") $("btnCerrarVista").click();
+        else if (perfil) $("btnCerrarPerfil").click();
+    }
+    if (e.key === "Tab") {
+        const enfocables = [...abierto.querySelectorAll("button, input, select, textarea, iframe")].filter(el => !el.disabled && el.offsetParent !== null);
+        if (!enfocables.length) return;
+        const [primero, ultimo] = [enfocables[0], enfocables[enfocables.length - 1]];
+        if (e.shiftKey && document.activeElement === primero) { ultimo.focus(); e.preventDefault(); }
+        else if (!e.shiftKey && document.activeElement === ultimo) { primero.focus(); e.preventDefault(); }
     }
 });
-$("btnDescargarZip").addEventListener("click", async () => {
-    if (archivosGenerados.length) await guardar(`Actas_${carpetaActual}.zip`, await zipDe(archivosGenerados, true));
-});
-$("btnCerrarVista").addEventListener("click", () => { $("modalVista").hidden = true; $("iframeVista").srcdoc = ""; });
 
-// ---------- Editor de resumen ----------
-const quill = new Quill("#editor-container", {
-    theme: "snow",
-    placeholder: "El resumen de los archivos generados (.HTML y .EML) aparecerá aquí...",
-    modules: { toolbar: [[{ header: [1, 2, 3, false] }], ["bold", "italic", "underline"], [{ list: "ordered" }, { list: "bullet" }], ["clean"]] },
-});
-marked.setOptions({ breaks: true, gfm: true });
-const mostrarResumen = (md) => { quill.root.innerHTML = marked.parse(md); };
-
-// ---------- Modo de proceso ----------
+// ---------- Modo de trabajo ----------
 const hoy = new Date();
 MESES.forEach(m => $("mes_ejecucion").add(new Option(m, m)));
 $("mes_ejecucion").value = MESES[hoy.getMonth()];
 $("anio_ejecucion").value = hoy.getFullYear();
 $("fecha_ejecucion").value = `${hoy.getFullYear()}-${pad(hoy.getMonth() + 1)}-${pad(hoy.getDate())}`;
-let tipoProceso = "consultoria";
 function actualizarModo() {
-    const impl = tipoProceso === "implementacion";
+    const impl = tipoProceso === "implementacion", hist = tipoProceso === "historial";
     document.querySelectorAll(".fx-tab").forEach(t => t.classList.toggle("activo", t.dataset.tipo === tipoProceso));
-    $("bloque-cliente").classList.toggle("hidden", impl);
-    $("nota-cliente-excel").classList.toggle("hidden", !impl);
-    $("bloque-periodo-implementacion").classList.toggle("hidden", !impl);
-    $("bloque-periodo-consultoria").classList.toggle("hidden", impl);
-    $("bloque-dictado").classList.toggle("hidden", impl);
+    $("vistaTrabajo").hidden = hist;
+    $("vistaHistorial").hidden = !hist;
+    if (hist) { cargarHistorial(); return; }
+    $("bloque-cliente").hidden = impl;
+    $("bloque-periodo-implementacion").hidden = !impl;
+    $("bloque-periodo-consultoria").hidden = impl;
+    $("bloque-dictado").hidden = impl;
     $("lblArchivos").textContent = impl ? "📊 Archivo Excel de actividades (.xlsx, .xls)" : "📁 Archivos de Respaldo (.xlsx, .pdf, .docx, .txt, .csv, imágenes)";
     $("archivos").accept = impl ? ".xlsx,.xls" : ".xlsx,.xls,.pdf,.docx,.txt,.csv,.md,.json,.log,.sql,.png,.jpg,.jpeg,.webp";
+    $("archivos").multiple = !impl;
+    renderPreviaExcel();
 }
-document.querySelectorAll(".fx-tab").forEach(t => t.addEventListener("click", () => { tipoProceso = t.dataset.tipo; actualizarModo(); }));
-actualizarModo();
-$("archivos").addEventListener("change", () => {
-    $("listaArchivos").textContent = [...$("archivos").files].map(f => f.name).join(" · ");
+document.querySelectorAll(".fx-tab").forEach(t => t.addEventListener("click", () => {
+    if (tipoProceso === t.dataset.tipo) return;
+    if (t.dataset.tipo !== "historial" && tipoProceso !== "historial") { $("archivos").value = ""; $("listaArchivos").textContent = ""; excelCargado = null; }
+    tipoProceso = t.dataset.tipo; actualizarModo(); guardarBorrador();
+}));
+$("archivos").addEventListener("change", async () => {
+    const archivos = [...$("archivos").files];
+    $("listaArchivos").textContent = archivos.map(f => f.name).join(" · ");
+    if (tipoProceso !== "implementacion") return;
+    excelCargado = null;
+    const excel = archivos.find(f => /\.(xlsx|xls)$/i.test(f.name));
+    if (!excel) { renderPreviaExcel(); return; }
+    try {
+        const hojas = await leerExcel(excel);
+        if (!hojas.length) { errorGeneral("El Excel no tiene hojas con datos."); return; }
+        excelCargado = { nombre: excel.name, hojas, mapeos: hojas.map(h => detectarColumnas(h.encabezados)) };
+    } catch { errorGeneral("No se pudo leer el Excel. Verifica que no esté dañado ni protegido con contraseña."); }
+    renderPreviaExcel();
+});
+["mes_ejecucion", "anio_ejecucion"].forEach(id => $(id).addEventListener("input", renderPreviaExcel));
+
+// ---------- Borrador automático (solo en este navegador) ----------
+const camposBorrador = () => [...document.querySelectorAll("[data-borrador]")];
+function datosBorrador() {
+    const campos = Object.fromEntries(camposBorrador().map(c => [c.id, c.value]));
+    return { ts: Date.now(), tipo: tipoProceso === "historial" ? "consultoria" : tipoProceso, campos, revision };
+}
+const guardarBorrador = retrasar(() => {
+    const d = datosBorrador();
+    const vacio = !revision && !Object.entries(d.campos).some(([id, v]) => v && !["fecha_ejecucion", "mes_ejecucion", "anio_ejecucion"].includes(id));
+    escribirLocal(CLAVE_BORRADOR, vacio ? null : d);
+}, 500);
+document.addEventListener("input", (e) => { if (e.target.matches?.("[data-borrador]")) guardarBorrador(); });
+function restaurarBorrador() {
+    const b = leerLocal(CLAVE_BORRADOR);
+    if (!b?.campos) return;
+    for (const [id, v] of Object.entries(b.campos)) if ($(id)) $(id).value = v;
+    tipoProceso = b.tipo || "consultoria";
+    if (b.revision?.actas?.length) revision = b.revision;
+    const hora = new Date(b.ts).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
+    $("textoBorrador").textContent = `📝 Recuperamos tu borrador de las ${hora}.` +
+        (tipoProceso === "implementacion" && !revision ? " Vuelve a adjuntar el Excel." : "") +
+        (revision ? " La revisión pendiente sigue abajo." : "");
+    $("avisoBorrador").hidden = false;
+}
+function limpiarFormulario() {
+    camposBorrador().forEach(c => { if (!["fecha_ejecucion", "mes_ejecucion", "anio_ejecucion"].includes(c.id)) c.value = ""; });
+    actualizarContador();
+}
+$("btnDescartarBorrador").addEventListener("click", () => {
+    escribirLocal(CLAVE_BORRADOR, null);
+    limpiarFormulario(); revision = null; mostrarPanel("vacio");
+    $("avisoBorrador").hidden = true;
 });
 
-// ---------- Dictado (sustituye la grabación de audio: Claude trabaja sobre el texto) ----------
-let dictando = false;
+// ---------- Dictado (Claude trabaja sobre el texto) ----------
+let dictando = false, inicioDictado = 0, relojDictado = null;
+const actualizarContador = () => {
+    const n = $("transcripcion").value.trim().split(/\s+/).filter(Boolean).length;
+    $("contadorPalabras").textContent = `${n} palabra${n === 1 ? "" : "s"}`;
+};
+$("transcripcion").addEventListener("input", actualizarContador);
 function iniciarDictado() {
     const d = cap.dictation;
-    if (!d) { $("sinDictado").classList.remove("hidden"); return; }
+    if (!d) { $("sinDictado").hidden = false; return; }
     d.onPartial(({ text }) => { $("parcialDictado").textContent = text; });
     d.onFinal(({ text }) => {
         const t = $("transcripcion");
         t.value = (t.value && !/\s$/.test(t.value) ? t.value + " " : t.value) + text;
         $("parcialDictado").textContent = "";
+        actualizarContador(); guardarBorrador();
     });
     d.onState(({ state, reason }) => {
         dictando = state === "listening";
         $("btnDictar").textContent = dictando ? "■ Detener dictado" : "● Dictar";
         $("btnDictar").classList.toggle("dictando", dictando);
-        $("estadoDictado").textContent = dictando ? "🔴 Escuchando... habla con normalidad."
-            : (reason === "not_granted" ? "No se permitió el micrófono. Puedes pegar la transcripción." : "Habla y el texto se agrega a la transcripción.");
+        clearInterval(relojDictado);
+        if (dictando) {
+            inicioDictado = Date.now(); $("cronometroDictado").hidden = false;
+            const tic = () => { const s = Math.floor((Date.now() - inicioDictado) / 1000); $("cronometroDictado").textContent = `${pad(Math.floor(s / 60))}:${pad(s % 60)}`; };
+            tic(); relojDictado = setInterval(tic, 1000);
+        }
+        const mensajes = {
+            hidden: "⚠️ El dictado se detuvo porque cambiaste de pestaña o ventana. Pulsa Dictar para continuar.",
+            not_granted: "No se permitió el micrófono. Puedes pegar la transcripción.",
+        };
+        $("estadoDictado").textContent = dictando ? "🔴 Escuchando... habla con normalidad." : (mensajes[reason] || "Habla y el texto se agrega a la transcripción.");
     });
 }
 $("btnDictar").addEventListener("click", () => {
     const d = cap.dictation;
-    if (!d) { $("sinDictado").classList.remove("hidden"); return; }
-    if (dictando) { d.stop().catch(() => {}); return; }
+    if (!d) { $("sinDictado").hidden = false; return; }
+    if (dictando) { d.stop().catch(() => { }); return; }
     d.start().catch(e => {
         if (e?.code === "not_granted") { $("btnDictar").disabled = true; $("estadoDictado").textContent = "No se permitió el micrófono. Puedes pegar la transcripción."; }
     });
 });
 
-// ---------- Flujo de consultoría ----------
-async function procesarConsultoria() {
+// ---------- Análisis: consultoría ----------
+async function analizarConsultoria() {
     const cliente = $("nombre_cliente").value.trim();
-    if (!cliente) { estadoError("Escribe el nombre del cliente."); $("nombre_cliente").focus(); return null; }
+    if (!cliente) { marcarError("nombre_cliente", "Escribe el nombre del cliente."); return null; }
     const responsable = $("responsable_cliente").value.trim() || "Responsable";
     const f = $("fecha_ejecucion").value;
     const fecha = f ? f.split("-").reverse().join("/") : "Fecha";
     const horas = $("horas_ejecutadas").value.trim() || "0";
+    if (!(parseFloat(horas) >= 0)) { marcarError("horas_ejecutadas", "Escribe un número de horas válido."); return null; }
     const notas = $("informacion_extra").value.trim();
-    const transcripcion = $("transcripcion").value.trim().slice(0, 40000);
+    let transcripcion = $("transcripcion").value.trim();
+    const avisos = [];
+    if (transcripcion.length > 40000) { transcripcion = transcripcion.slice(0, 40000); avisos.push("La transcripción es muy larga: Claude leyó solo los primeros 40.000 caracteres."); }
 
-    estadoProgreso("Leyendo archivos adjuntos...");
+    estadoProceso("Leyendo archivos adjuntos...");
     let documentos = ""; const imagenes = [];
     for (const file of $("archivos").files) {
         try {
             const r = await leerInsumo(file);
             if (r.imagen) imagenes.push(r.imagen);
             else if (r.texto.trim()) documentos += `\n--- ${r.etiqueta} (${file.name}) ---\n${r.texto.trim()}\n`;
-        } catch { documentos += `\n--- (No se pudo leer ${file.name}) ---\n`; }
+        } catch { avisos.push(`No se pudo leer el archivo ${file.name}.`); }
     }
     if (!documentos.trim() && !notas && !transcripcion && !imagenes.length) {
-        estadoError("Debes dictar o pegar la transcripción, adjuntar al menos un archivo o ingresar notas del servicio.");
+        marcarError("transcripcion", "Dicta o pega la transcripción, adjunta un archivo o escribe notas del servicio.");
         return null;
     }
-    // El límite de Claude es 256 KB por llamada: se recorta con margen para acentos y el resto del prompt
-    if (documentos.length > 90000) documentos = documentos.slice(0, 90000) + "\n[... contenido recortado por tamaño ...]";
+    // Límite de Claude: 256 KB por llamada; se recorta con margen para acentos y el resto del prompt
+    if (documentos.length > 90000) { documentos = documentos.slice(0, 90000) + "\n[... contenido recortado por tamaño ...]"; avisos.push("Los archivos adjuntos son muy extensos: Claude leyó solo la primera parte (unos 90.000 caracteres)."); }
     if (imagenes.length) {
         const lim = await cap.sample.limits().catch(() => null);
-        if (!lim?.images) { estadoError("Este navegador no puede enviar imágenes a Claude. Quita las imágenes o usa texto."); return null; }
-        imagenes.splice(lim.images.maxCount);
+        if (!lim?.images) { errorGeneral("Este navegador no puede enviar imágenes a Claude. Quita las imágenes o usa texto."); return null; }
+        if (imagenes.length > lim.images.maxCount) { avisos.push(`Solo se enviaron a Claude ${lim.images.maxCount} de ${imagenes.length} imágenes.`); imagenes.splice(lim.images.maxCount); }
     }
 
     const prompt = `ACTÚA COMO UN CONSULTOR SENIOR DE PROCESOS SAP BUSINESS ONE DE CONSENSUS S.A.S. ESPECIALIZADO EN CONSULTORÍA POSVENTA Y SOPORTE.
@@ -762,72 +986,33 @@ REGLAS CRÍTICAS DE EXTRACCIÓN Y PROCESAMIENTO:
 FORMATO DE RESPUESTA: responde SOLO con un objeto JSON, sin texto adicional:
 {"actividades": ["Actividad 1 redactada", "Actividad 2 redactada"], "observaciones": "Texto o Ninguna", "destinatario": "correo@cliente.com o vacío"}`;
 
-    estadoProgreso("Claude está redactando el acta de consultoría...");
+    estadoProceso("Claude está redactando el acta de consultoría…");
     const r = await pedirJSON(prompt, imagenes.length ? { images: imagenes } : {});
     const actividades = (Array.isArray(r?.actividades) ? r.actividades : []).map(a => capitalizar(String(a))).filter(Boolean);
-    if (!actividades.length) { estadoError("Claude no encontró actividades en los insumos. Agrega más detalle e inténtalo de nuevo."); return null; }
-    const correoValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(r.destinatario || "").trim());
-    const para = correoValido ? String(r.destinatario).trim() : responsable;
-
+    if (!actividades.length) { errorGeneral("Claude no encontró actividades en los insumos. Agrega más detalle e inténtalo de nuevo."); return null; }
+    const destinatario = String(r.destinatario || "").trim();
+    const para = CORREO_RE.test(destinatario) ? destinatario : responsable;
+    if (!CORREO_RE.test(para)) avisos.push("No se encontró el correo del responsable: escríbelo en el campo «Para» antes de generar.");
     const fechaD = f ? new Date(f + "T00:00") : null;
-    const carpeta = fechaD ? `Consultoria_${MESES[fechaD.getMonth()]}_${fechaD.getFullYear()}` : "Consultoria_Sin_fecha";
-    const html = htmlConsultoria({ cliente, responsable, fecha, horas, actividades, observaciones: String(r.observaciones || "Ninguna").trim() || "Ninguna" });
-    const asunto = `Confirmación de Consultoría SAP Business One - ${cliente} - ${fecha}`;
-    const base = `${nombreSeguro(cliente, "Cliente")}_${nombreSeguro(fecha, "Fecha")}`;
-    const item = registrarArchivos({ cliente, carpeta, baseHtml: `Acta_Consultoria_${base}`, baseEml: `Correo_Consultoria_${base}`, html, para, asunto });
-    carpetaActual = carpeta;
-    return [
-        "# 📊 Resumen de Consultoría Posventa",
-        `**Carpeta dentro del ZIP:** \`${carpeta}/\``, "---", "### 📂 Archivos Generados",
-        "| Cliente | Fecha | Horas | Archivo HTML | Archivo EML (Outlook) | Estado |",
-        "| :--- | :--- | :--- | :--- | :--- | :--- |",
-        `| **${cliente}** | ${fecha} | ${horas} hrs | \`${item.nombreHtml}\` | \`${item.nombreEml}\` | ✅ Generado |`,
-        "", `**Destinatario:** ${para} · **Actividades:** ${actividades.length}`,
-        "", "> 💡 Descarga el **.EML** con el botón de arriba (viene en un .ZIP), descomprímelo y ábrelo en Outlook: aparece como borrador listo para revisar y enviar.",
-    ].join("\n");
+    return {
+        tipo: "consultoria", avisos,
+        carpeta: fechaD ? `Consultoria_${MESES[fechaD.getMonth()]}_${fechaD.getFullYear()}` : "Consultoria_Sin_fecha",
+        actas: [{
+            tipo: "consultoria", estado: "ok", cliente, para,
+            asunto: `Confirmación de Consultoría SAP Business One - ${cliente} - ${fecha}`,
+            base: `${nombreSeguro(cliente, "Cliente")}_${nombreSeguro(fecha, "Fecha")}`,
+            datos: { cliente, responsable, fecha, horas, actividades, observaciones: String(r.observaciones || "Ninguna").trim() || "Ninguna" },
+        }],
+    };
 }
 
-// ---------- Flujo de implementación ----------
-const CAMPOS = ["cliente", "actividad", "fecha_inicio", "fecha_fin", "hora_inicio", "hora_fin", "horas", "recurso", "correo", "tipo", "accion", "estado"];
-async function mapearColumnas(hoja) {
-    const muestra = [hoja.encabezados, ...hoja.datos.slice(0, 8).map(f => f.map(textoCelda))].map(f => f.join("\t")).join("\n");
-    const r = await pedirJSON(`Eres un sistema de mapeo de columnas para reportes de Consensus S.A.S. Estas son las primeras filas (TSV) de una hoja de registro de actividades:
-
-${muestra}
-
-Identifica qué encabezado EXACTO corresponde a cada campo (o null si no existe):
-- cliente: Cuenta o Cliente
-- actividad: Descripción de la actividad
-- fecha_inicio: fecha de inicio (NUNCA una fecha de creación o registro)
-- fecha_fin: fecha de fin
-- hora_inicio / hora_fin: solo si la hora está en una columna separada de la fecha
-- horas: horas registradas
-- recurso: Persona o recurso que ejecutó
-- correo: Correo Responsable (destinatario del correo)
-- tipo: Tipo de actividad
-- accion: Acción
-- estado: estado o indicador de actividad proyectada/futura, si existe
-
-Responde SOLO con JSON: {"cliente": "...", "actividad": "...", "fecha_inicio": "...", "fecha_fin": null, "hora_inicio": null, "hora_fin": null, "horas": "...", "recurso": "...", "correo": "...", "tipo": null, "accion": null, "estado": null}`, { modelTier: "quick" });
-    const idx = {};
-    for (const c of CAMPOS) {
-        const nombre = r?.[c];
-        const i = nombre == null ? -1 : hoja.encabezados.findIndex(h => h === nombre || normalizar(h) === normalizar(nombre));
-        idx[c] = i;
-    }
-    return idx;
-}
-function horaDe(fila, idxFecha, idxHora) {
-    if (idxHora >= 0) { const d = aFecha(fila[idxHora]); if (d) return fmtHora(d); const s = textoCelda(fila[idxHora]); if (/^\d{1,2}:\d{2}/.test(s)) return s.slice(0, 5).padStart(5, "0"); }
-    if (idxFecha >= 0) { const d = aFecha(fila[idxFecha]); if (d && (d.getHours() || d.getMinutes())) return fmtHora(d); }
-    return "";
-}
-async function corregirCliente(nombre, filas, indicaciones) {
-    const lote = 120, corregidas = [], descartar = new Set(); let observacion = "";
+// ---------- Análisis: implementación ----------
+async function corregirCliente(acta, indicaciones) {
+    const filas = acta.datos.filasCrudas, lote = 120, corregidas = [], descartar = new Set(); let observacion = "";
     for (let ini = 0; ini < filas.length; ini += lote) {
         const parte = filas.slice(ini, ini + lote);
         const lista = parte.map((f, k) => JSON.stringify({ i: ini + k, actividad: f.actividadOriginal, accion: f.accion || undefined, estado: f.estado || undefined })).join("\n");
-        const r = await pedirJSON(`ACTÚA COMO UN SISTEMA DE AUTOMATIZACIÓN DE REPORTES PARA CONSENSUS S.A.S. Cliente: ${nombre}.
+        const r = await pedirJSON(`ACTÚA COMO UN SISTEMA DE AUTOMATIZACIÓN DE REPORTES PARA CONSENSUS S.A.S. Cliente: ${acta.cliente}.
 ${indicaciones ? `Indicaciones del consultor: ${indicaciones}\n` : ""}
 Actividades registradas (una por línea, JSON):
 ${lista}
@@ -843,139 +1028,345 @@ Responde SOLO con JSON: {"actividades": ["..."], "descartar": [números i], "obs
         (Array.isArray(r?.descartar) ? r.descartar : []).forEach(i => descartar.add(+i));
         if (!observacion && r?.observacion) observacion = String(r.observacion).trim();
     }
-    return { corregidas, descartar, observacion };
+    acta.datos.filas = filas.map((f, i) => ({ ...f, actividad: corregidas[i] || capitalizar(f.actividadOriginal) })).filter((_, i) => !descartar.has(i));
+    acta.datos.proyectadas = filas.filter((_, i) => descartar.has(i)).map(f => corregidas[filas.indexOf(f)] || f.actividadOriginal);
+    acta.datos.observacion = observacion;
+    acta.estado = acta.datos.filas.length ? "ok" : "vacia";
+    acta.error = acta.estado === "vacia" ? "Todas sus actividades estaban proyectadas o futuras." : "";
 }
-async function procesarImplementacion() {
+async function enParalelo(items, n, fn) {
+    let i = 0;
+    await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => { while (i < items.length) { const k = i++; await fn(items[k], k); } }));
+}
+async function procesarClientes(actas, indicaciones) {
+    let hechos = 0, fatal = null;
+    await enParalelo(actas, 2, async (acta) => {    // dos clientes a la vez
+        if (fatal) { acta.estado = "error"; acta.error = mensajeClaude(fatal); return; }
+        try { await corregirCliente(acta, indicaciones); }
+        catch (e) {
+            acta.estado = "error"; acta.error = mensajeClaude(e);
+            if (ERRORES_FATALES.has(e?.code)) fatal = e;
+        }
+        hechos++;
+        estadoProceso(`Claude revisó ${hechos} de ${actas.length} cliente(s)…`);
+        if (!revision) return;
+        if (revision.actas[revision.sel] === acta) renderRevision();
+        else actualizarChips();
+    });
+    return fatal;
+}
+async function analizarImplementacion() {
     const mes = $("mes_ejecucion").value, anio = parseInt($("anio_ejecucion").value, 10);
-    if (!mes || !anio) { estadoError("El Mes y el Año son requeridos."); return null; }
-    const excel = [...$("archivos").files].find(f => /\.(xlsx|xls)$/i.test(f.name));
-    if (!excel) { estadoError("Adjunta un archivo Excel válido (.xlsx, .xls)."); return null; }
-    const numeroMes = MESES.indexOf(mes) + 1;
-    const indicaciones = $("informacion_extra").value.trim();
-
-    estadoProgreso("Leyendo el Excel...");
-    const hojas = (await leerExcel(excel)).map(h => filtrarHojaPorPeriodo(h, numeroMes, anio));
-    if (!hojas.length) { estadoError("El Excel no tiene hojas con datos."); return null; }
-
-    const clientes = new Map(); const descartados = []; const vistos = new Set();
-    for (const hoja of hojas) {
-        estadoProgreso(`Identificando columnas de la hoja "${hoja.nombre}"...`);
-        const ix = await mapearColumnas(hoja);
-        if (ix.cliente < 0 || ix.actividad < 0 || ix.fecha_inicio < 0 || ix.horas < 0) {
-            descartados.push(`Hoja "${hoja.nombre}": no se identificaron las columnas de cliente, actividad, fecha de inicio y horas.`);
-            continue;
-        }
-        for (const fila of hoja.datos) {
-            const clave = JSON.stringify(fila.map(textoCelda));
-            if (vistos.has(clave)) { descartados.push("Registro duplicado exacto."); continue; }
-            vistos.add(clave);
-            const cliente = textoCelda(fila[ix.cliente]), actividad = textoCelda(fila[ix.actividad]);
-            const inicio = aFecha(fila[ix.fecha_inicio]), horas = aNumero(fila[ix.horas]);
-            if (!cliente || !actividad || !inicio) { descartados.push("Registro sin cliente, actividad o fecha de inicio válida."); continue; }
-            if (!(inicio.getMonth() + 1 === numeroMes && inicio.getFullYear() === anio)) continue;   // filtrado estricto por fecha de inicio
-            if (!(horas > 0)) { descartados.push(`${cliente}: registro con horas menores o iguales a cero.`); continue; }
-            const llave = normalizar(cliente);
-            if (!clientes.has(llave)) clientes.set(llave, { cliente, filas: [] });
-            const horaIni = horaDe(fila, ix.fecha_inicio, ix.hora_inicio);
-            const [hh, mm] = horaIni ? horaIni.split(":").map(Number) : [0, 0];
-            clientes.get(llave).filas.push({
-                actividadOriginal: actividad,
-                orden: new Date(inicio.getFullYear(), inicio.getMonth(), inicio.getDate(), hh, mm).getTime(),   // cronológico por fecha y hora de inicio
-                fecha: fmtFecha(inicio), horaInicio: horaIni || "—", horaFin: horaDe(fila, ix.fecha_fin, ix.hora_fin) || "—",
-                horas: Math.round(horas * 100) / 100,
-                recurso: ix.recurso >= 0 ? textoCelda(fila[ix.recurso]) : "",
-                correo: ix.correo >= 0 ? textoCelda(fila[ix.correo]) : "",
-                tipo: ix.tipo >= 0 ? textoCelda(fila[ix.tipo]) : "",
-                accion: ix.accion >= 0 ? textoCelda(fila[ix.accion]) : "",
-                estado: ix.estado >= 0 ? textoCelda(fila[ix.estado]) : "",
-            });
-        }
-    }
-    if (!clientes.size) {
-        estadoError(`No hay actividades con fecha de inicio en ${mes} de ${anio}.`);
-        return `# 📊 Resumen de Procesamiento: ${mes} de ${anio}\n\n*No se generaron archivos. Revisa el Excel o el período seleccionado.*` +
-            (descartados.length ? `\n\n### ⚠️ Avisos\n${[...new Set(descartados)].map(d => `- ${d}`).join("\n")}` : "");
-    }
-
-    const carpeta = `${mes}_${anio}`;
-    const resumen = [`# 📊 Resumen de Procesamiento: ${mes} de ${anio}`, `**Carpeta dentro del ZIP:** \`${carpeta}/\``, "---",
-        "### 📂 Archivos Generados", "| Cliente / Cuenta | Horas Totales | Destinatario | Estado |", "| :--- | :--- | :--- | :--- |"];
-    const errores = []; let k = 0;
-    for (const c of clientes.values()) {
-        k++;
-        estadoProgreso(`Claude está revisando ${c.cliente} (${k} de ${clientes.size})...`);
-        try {
-            c.filas.sort((a, b) => a.orden - b.orden);
-            const { corregidas, descartar, observacion } = await corregirCliente(c.cliente, c.filas, indicaciones);
-            c.filas.forEach((f, i) => { f.actividad = corregidas[i] || capitalizar(f.actividadOriginal); });
-            const proyectadas = c.filas.filter((_, i) => descartar.has(i));
-            proyectadas.forEach(f => descartados.push(`${c.cliente}: "${f.actividad}" descartada por estar proyectada o ser futura.`));
-            c.filas = c.filas.filter((_, i) => !descartar.has(i));
-            if (!c.filas.length) continue;
-            c.totalHoras = Math.round(c.filas.reduce((s, f) => s + f.horas, 0) * 100) / 100;
-            c.recursos = [...new Set(c.filas.map(f => f.recurso).filter(Boolean))];
-            c.tipos = [...new Set(c.filas.map(f => f.tipo).filter(Boolean))];
-            // Hasta tres actividades principales sin duplicar: las de más horas acumuladas
-            const porActividad = new Map();
-            c.filas.forEach(f => porActividad.set(f.actividad, (porActividad.get(f.actividad) || 0) + f.horas));
-            c.principales = [...porActividad.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([a]) => a);
-            c.observacion = observacion;
-            const correos = [...new Set(c.filas.flatMap(f => f.correo.split(/[,;\s]+/)).map(s => s.trim().toLowerCase()).filter(s => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s)))];
-            const para = correos.length ? correos.join(", ") : "[Correo no encontrado]";
-            const asunto = `Relación de actividades realizadas - ${c.cliente} - ${mes.toUpperCase()} ${anio}`;
-            const seguro = nombreSeguro(c.cliente, "Cliente");
-            registrarArchivos({ cliente: c.cliente, carpeta, baseHtml: `${seguro}_Reporte_${mes}_${anio}`, baseEml: `${seguro}_Correo_${mes}_${anio}`,
-                html: htmlImplementacion(c, mes, anio), para, asunto });
-            resumen.push(`| ${c.cliente} | ${c.totalHoras} | ${para} | ✅ Generado |`);
-        } catch (e) {
-            if (e?.code === "cancelled" || e?.code === "not_granted" || e?.code === "rate_limited") throw e;
-            errores.push(`Fallo al generar archivos para '${c.cliente}': ${mensajeClaude(e)}`);
-        }
-    }
-    carpetaActual = carpeta;
-    if (errores.length) resumen.push("", "---", "### ⚠️ Errores", ...errores.map(e => `- ${e}`));
-    const avisos = [...new Set(descartados)];
-    if (avisos.length) resumen.push("", "---", "### 🔎 Registros descartados", ...avisos.slice(0, 40).map(d => `- ${d}`));
-    const sinCorreo = archivosGenerados.filter(a => a.para === "[Correo no encontrado]").map(a => a.cliente);
-    if (sinCorreo.length) resumen.push("", `> ⚠️ **Sin correo responsable:** ${sinCorreo.join(", ")}. Completa el destinatario en Outlook antes de enviar.`);
-    resumen.push("", "---", "> 📦 **Descarga rápida:** usa **Descargar Todo (.ZIP)** para bajar todas las actas y correos.");
-    return resumen.join("\n");
+    if (!(anio >= 2020 && anio <= 2035)) { marcarError("anio_ejecucion", "Escribe un año entre 2020 y 2035."); return null; }
+    if (!excelCargado) { marcarError("archivos", "Adjunta el archivo Excel de actividades (.xlsx, .xls)."); return null; }
+    const r = analizarExcel(MESES.indexOf(mes) + 1, anio);
+    if (r.hojasSinColumnas.length && !r.clientes.size) { errorGeneral("Falta identificar las columnas obligatorias del Excel. Corrígelas en «Columnas detectadas»."); return null; }
+    if (!r.clientes.size) { errorGeneral(`No hay actividades con fecha de inicio en ${mes} de ${anio}.`); return null; }
+    const avisos = [];
+    if (r.duplicados) avisos.push(`${r.duplicados} registro(s) duplicado(s) exacto(s) descartado(s).`);
+    if (r.horasCero) avisos.push(`${r.horasCero} registro(s) con horas en 0 descartado(s).`);
+    if (r.incompletos) avisos.push(`${r.incompletos} registro(s) sin cliente, actividad o fecha descartado(s).`);
+    const actas = [...r.clientes.values()].map(c => {
+        const correos = [...new Set(c.filas.flatMap(f => f.correo.split(/[,;\s]+/)).map(s => s.trim().toLowerCase()).filter(s => CORREO_RE.test(s)))];
+        const seguro = nombreSeguro(c.cliente, "Cliente");
+        return {
+            tipo: "implementacion", estado: "pendiente", cliente: c.cliente,
+            para: correos.length ? correos.join(", ") : "[Correo no encontrado]",
+            asunto: `Relación de actividades realizadas - ${c.cliente} - ${mes.toUpperCase()} ${anio}`,
+            baseHtml: `${seguro}_Reporte_${mes}_${anio}`, baseEml: `${seguro}_Correo_${mes}_${anio}`,
+            datos: { cliente: c.cliente, mes, anio, filasCrudas: c.filas, filas: [], observacion: "", proyectadas: [] },
+        };
+    });
+    revision = { tipo: "implementacion", carpeta: `${mes}_${anio}`, avisos, actas, sel: 0, indicaciones: $("informacion_extra").value.trim() };
+    mostrarPanel("revision"); renderRevision();
+    const fatal = await procesarClientes(actas, revision.indicaciones);
+    if (fatal?.code === "cancelled") throw fatal;
+    return revision;
 }
 
-// ---------- Envío del formulario ----------
+// ---------- Revisión editable con vista previa en vivo ----------
+function mostrarPanel(cual) {
+    $("panelVacio").hidden = cual !== "vacio";
+    $("panelRevision").hidden = cual !== "revision";
+    $("panelArchivos").hidden = cual !== "archivos";
+    $("tituloPanel").textContent = cual === "archivos" ? "📦 Archivos generados" : "📄 Revisión y vista previa";
+    $("badgeCarpeta").hidden = cual === "vacio" || !revision;
+    if (revision) $("badgeCarpeta").textContent = `${revision.carpeta}/`;
+}
+const COLOR_ESTADO = { ok: "var(--ok)", pendiente: "var(--sap-claro)", error: "var(--error)", vacia: "var(--aviso)" };
+function renderRevision() {
+    const R = revision, acta = R.actas[R.sel] || R.actas[0];
+    const listas = R.actas.filter(a => a.estado === "ok").length;
+    const chips = R.actas.length > 1 ? `<div class="flex gap-2 overflow-x-auto pb-1">${R.actas.map((a, i) =>
+        `<button type="button" class="chip${i === R.sel ? " activo" : ""}" data-sel="${i}"><span class="estado-punto" style="background:${COLOR_ESTADO[a.estado]}"></span>${esc(a.cliente)}</button>`).join("")}</div>` : "";
+    const avisos = R.avisos.length ? `<div class="aviso aviso-atencion text-xs space-y-1">${R.avisos.map(a => `<p>⚠️ ${esc(a)}</p>`).join("")}</div>` : "";
+    let cuerpo;
+    if (acta.estado === "pendiente") cuerpo = `<div class="vacio"><div class="girando mb-2"></div>Claude está revisando ${esc(acta.cliente)}…</div>`;
+    else if (acta.estado === "error" || acta.estado === "vacia") cuerpo = `<div class="aviso ${acta.estado === "error" ? "aviso-error" : "aviso-atencion"}">
+            <p class="font-semibold">${esc(acta.cliente)}: ${esc(acta.error)}</p>
+            ${acta.estado === "error" ? `<button type="button" class="boton-sec mt-2" data-accion="reintentar">↻ Reintentar este cliente</button>` : ""}</div>`;
+    else cuerpo = editorActa(acta);
+    $("panelRevision").innerHTML = `
+        ${avisos}${chips}
+        ${cuerpo}
+        <div class="flex flex-wrap gap-2 pt-1">
+            <button type="button" id="btnGenerar" class="boton flex-1" ${listas ? "" : "disabled"}>✅ Generar ${listas > 1 ? `${listas} actas` : "archivos"}</button>
+            <button type="button" class="boton-sec" data-accion="descartar">Descartar revisión</button>
+        </div>`;
+    if (acta.estado === "ok") actualizarPrevia();
+}
+function actualizarChips() {
+    revision.actas.forEach((a, i) => { const p = $("panelRevision").querySelector(`[data-sel="${i}"] .estado-punto`); if (p) p.style.background = COLOR_ESTADO[a.estado]; });
+    const listas = revision.actas.filter(a => a.estado === "ok").length, b = $("btnGenerar");
+    if (b) { b.disabled = !listas; b.textContent = `✅ Generar ${listas > 1 ? `${listas} actas` : "archivos"}`; }
+}
+function editorActa(a) {
+    const campos = `
+        <div class="grid grid-cols-1 gap-2">
+            <label class="etiqueta">Para<input class="campo mt-1 font-normal" data-acta="para" value="${esc(a.para)}"></label>
+            <label class="etiqueta">Asunto<input class="campo mt-1 font-normal" data-acta="asunto" value="${esc(a.asunto)}"></label>
+        </div>`;
+    let detalleHtml;
+    if (a.tipo === "consultoria") {
+        detalleHtml = `
+        <div>
+            <span class="etiqueta">Actividades realizadas</span>
+            <div class="space-y-1.5">${a.datos.actividades.map((t, i) => `
+                <div class="flex items-start gap-1.5">
+                    <span class="text-xs text-gray-500 pt-2 w-5 text-right flex-none">${i + 1}.</span>
+                    <textarea class="campo" rows="2" data-actividad="${i}" aria-label="Actividad ${i + 1}">${esc(t)}</textarea>
+                    <div class="flex flex-col gap-1">
+                        <button type="button" class="boton-icono" data-accion="subir" data-i="${i}" aria-label="Subir" ${i === 0 ? "disabled" : ""}>↑</button>
+                        <button type="button" class="boton-icono" data-accion="bajar" data-i="${i}" aria-label="Bajar" ${i === a.datos.actividades.length - 1 ? "disabled" : ""}>↓</button>
+                    </div>
+                    <button type="button" class="boton-icono" data-accion="quitar" data-i="${i}" aria-label="Quitar actividad">✕</button>
+                </div>`).join("")}
+            </div>
+            <button type="button" class="boton-sec mt-2" data-accion="agregar">＋ Agregar actividad</button>
+        </div>
+        <label class="etiqueta">Observaciones<textarea class="campo mt-1 font-normal" rows="2" data-acta-dato="observaciones">${esc(a.datos.observaciones)}</textarea></label>`;
+    } else {
+        const r = resumenImplementacion(a.datos);
+        detalleHtml = `
+        <p class="text-xs text-gray-600" data-totales>${plural(r.filas.length, "actividad", "actividades")} · ${fmtNum(r.totalHoras)} horas · ${esc(r.recursos.join(", ") || "sin recurso")}</p>
+        <div class="desplazable"><table class="tabla">
+            <thead><tr><th>Actividad</th><th>Fecha</th><th>Inicio</th><th>Fin</th><th class="num">Horas</th><th></th></tr></thead>
+            <tbody>${a.datos.filas.map((f, i) => `<tr>
+                <td style="min-width: 14rem"><textarea class="campo" rows="2" style="font-size: .75rem" data-fila="${i}" aria-label="Actividad del ${esc(f.fecha)}">${esc(f.actividad)}</textarea></td>
+                <td>${esc(f.fecha)}</td><td>${esc(f.horaInicio)}</td><td>${esc(f.horaFin)}</td><td class="num">${fmtNum(f.horas)}</td>
+                <td><button type="button" class="boton-icono" data-accion="quitarFila" data-i="${i}" aria-label="Quitar actividad">✕</button></td></tr>`).join("")}
+            </tbody></table></div>
+        ${a.datos.proyectadas?.length ? `<p class="text-[11px]" style="color: var(--aviso)">Claude descartó por proyectadas o futuras: ${a.datos.proyectadas.map(esc).join("; ")}</p>` : ""}
+        <label class="etiqueta">Observación para el cliente (opcional)<textarea class="campo mt-1 font-normal" rows="2" data-acta-dato="observacion">${esc(a.datos.observacion)}</textarea></label>`;
+    }
+    return `<div class="space-y-3">${campos}${detalleHtml}
+        <div class="flex items-center justify-between gap-2">
+            <span class="etiqueta mb-0">Vista previa del correo</span>
+            <button type="button" class="boton-sec" data-accion="ampliar">⤢ Ampliar</button>
+        </div>
+        <iframe id="iframePrevia" class="vista-previa" sandbox="" title="Vista previa del correo"></iframe></div>`;
+}
+const actualizarPrevia = retrasar(() => {
+    const a = revision?.actas[revision.sel];
+    if (!a || a.estado !== "ok" || !$("iframePrevia")) return;
+    $("iframePrevia").srcdoc = htmlParaArchivo(htmlDeActa(a));
+    if (a.tipo === "implementacion" && $("panelRevision").querySelector("[data-totales]")) {
+        const r = resumenImplementacion(a.datos);
+        $("panelRevision").querySelector("[data-totales]").textContent = `${plural(r.filas.length, "actividad", "actividades")} · ${fmtNum(r.totalHoras)} horas · ${r.recursos.join(", ") || "sin recurso"}`;
+    }
+}, 250);
+$("panelRevision").addEventListener("input", (e) => {
+    const a = revision.actas[revision.sel], t = e.target;
+    if (t.dataset.acta) a[t.dataset.acta] = t.value;
+    else if (t.dataset.actaDato) a.datos[t.dataset.actaDato] = t.value;
+    else if (t.dataset.actividad !== undefined) a.datos.actividades[+t.dataset.actividad] = t.value;
+    else if (t.dataset.fila !== undefined) a.datos.filas[+t.dataset.fila].actividad = t.value;
+    actualizarPrevia(); guardarBorrador();
+});
+$("panelRevision").addEventListener("click", async (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    const a = revision.actas[revision.sel], i = +b.dataset.i, lista = a.datos.actividades;
+    if (b.dataset.sel !== undefined) { revision.sel = +b.dataset.sel; renderRevision(); return; }
+    if (b.id === "btnGenerar") { generarArchivos(); return; }
+    switch (b.dataset.accion) {
+        case "subir": [lista[i - 1], lista[i]] = [lista[i], lista[i - 1]]; break;
+        case "bajar": [lista[i + 1], lista[i]] = [lista[i], lista[i + 1]]; break;
+        case "quitar": lista.splice(i, 1); break;
+        case "agregar": lista.push(""); break;
+        case "quitarFila": a.datos.filas.splice(i, 1); if (!a.datos.filas.length) { a.estado = "vacia"; a.error = "Quitaste todas sus actividades; no se generará su acta."; } break;
+        case "ampliar": abrirVista(a.cliente, htmlParaArchivo(htmlDeActa(a))); return;
+        case "descartar": revision = null; mostrarPanel("vacio"); guardarBorrador(); return;
+        case "reintentar":
+            a.estado = "pendiente"; renderRevision();
+            controlador = new AbortController();
+            try { await corregirCliente(a, revision.indicaciones); } catch (err) { a.estado = "error"; a.error = mensajeClaude(err); }
+            controlador = null;
+            break;
+        default: return;
+    }
+    renderRevision(); guardarBorrador();
+    if (b.dataset.accion === "agregar") $("panelRevision").querySelector(`[data-actividad="${lista.length - 1}"]`)?.focus();
+});
+
+// ---------- Generación de archivos e historial ----------
+function avisoArchivos(texto, tipo = "info") {
+    const p = $("panelArchivos").querySelector("[data-aviso-archivos]");
+    if (p) { p.className = `aviso aviso-${tipo}`; p.textContent = texto; p.hidden = false; }
+}
+function generarArchivos() {
+    const actas = revision.actas.filter(a => a.estado === "ok");
+    const sinCorreo = actas.filter(a => !a.para.split(/\s*,\s*/).every(c => CORREO_RE.test(c)));
+    archivosGenerados = [];
+    for (const a of actas) {
+        if (a.tipo === "consultoria") a.datos.actividades = a.datos.actividades.map(s => s.trim()).filter(Boolean);
+        const html = htmlDeActa(a);
+        const baseHtml = a.baseHtml || `Acta_Consultoria_${a.base}`, baseEml = a.baseEml || `Correo_Consultoria_${a.base}`;
+        let nombreHtml = `${baseHtml}.html`, nombreEml = `${baseEml}.eml`, n = 2;   // como la app: _2, _3... si se repite
+        while (archivosGenerados.some(x => x.nombreHtml === nombreHtml || x.nombreEml === nombreEml)) { nombreHtml = `${baseHtml}_${n}.html`; nombreEml = `${baseEml}_${n}.eml`; n++; }
+        const de = { nombre: perfil.nombre, email: perfil.email };
+        const item = { tipo: a.tipo, cliente: a.cliente, carpeta: revision.carpeta, nombreHtml, nombreEml, para: a.para, asunto: a.asunto, htmlCid: html, de,
+            html: htmlParaArchivo(html), eml: construirEML({ para: a.para, asunto: a.asunto, html, de }),
+            horas: a.tipo === "implementacion" ? resumenImplementacion(a.datos).totalHoras : a.datos.horas };
+        archivosGenerados.push(item);
+    }
+    guardarEnHistorial(archivosGenerados);
+    renderArchivos(sinCorreo.map(a => a.cliente));
+    if (revision.tipo === "consultoria") limpiarFormulario();
+    escribirLocal(CLAVE_BORRADOR, revision.tipo === "consultoria" ? null : { ...datosBorrador(), revision: null });
+}
+function filaArchivo(a, i, origen) {
+    return `<div class="flex flex-wrap items-center justify-between gap-2 py-2 border-b border-blue-100/70 last:border-0">
+        <div class="min-w-0"><p class="font-bold text-gray-800 break-words">${esc(a.cliente)}</p>
+            <p class="text-[11px] text-gray-500 break-words">${esc(a.para)}${a.creado ? ` · ${new Date(a.creado).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" })}` : ""}</p></div>
+        <div class="flex flex-wrap items-center gap-1.5">
+            <button type="button" class="boton-sec" data-${origen}="ver" data-i="${i}">👁️ Ver</button>
+            <button type="button" class="boton-sec" data-${origen}="copiar" data-i="${i}">📋 Copiar para Outlook</button>
+            <button type="button" class="boton-sec" data-${origen}="html" data-i="${i}">⬇️ HTML</button>
+            <button type="button" class="px-2.5 py-1 text-white rounded font-semibold text-[11px]" style="background: var(--sap-boton)" data-${origen}="eml" data-i="${i}">📧 EML (Outlook)</button>
+            ${origen === "hist" ? `<button type="button" class="boton-sec" data-hist="borrar" data-i="${i}" aria-label="Eliminar del historial">🗑️</button>` : ""}
+        </div></div>`;
+}
+function renderArchivos(sinCorreo) {
+    const filasResumen = archivosGenerados.map(a => `<tr><td>${esc(a.cliente)}</td><td class="num">${esc(String(a.horas).replace(".", ","))}</td><td>${esc(a.para)}</td><td>✅ Generado</td></tr>`).join("");
+    $("panelArchivos").innerHTML = `
+        <div class="aviso aviso-ok font-semibold">✅ ${archivosGenerados.length} acta(s) generada(s) y guardada(s) en «Mis actas».</div>
+        <div data-aviso-archivos hidden></div>
+        ${sinCorreo.length ? `<div class="aviso aviso-atencion text-xs">⚠️ Sin correo de destinatario válido: ${sinCorreo.map(esc).join(", ")}. Complétalo en Outlook antes de enviar.</div>` : ""}
+        <div class="p-3 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg">
+            <div class="flex flex-wrap items-center justify-between gap-2 pb-1">
+                <span class="text-xs font-bold">📦 Archivos listos</span>
+                <button type="button" class="px-3 py-1.5 text-white font-semibold rounded text-xs shadow-sm" style="background: var(--sap-boton)" data-gen="todo">⬇️ Descargar Todo (.ZIP)</button>
+            </div>
+            <div class="text-xs">${archivosGenerados.map((a, i) => filaArchivo(a, i, "gen")).join("")}</div>
+        </div>
+        <p class="text-[11px] text-gray-600">El .EML se descarga dentro de un .ZIP junto con su .HTML: descomprímelo y ábrelo en Outlook, aparece como borrador listo para revisar y enviar. «Copiar para Outlook» copia el acta con formato para pegarla en un correo nuevo.</p>
+        <div class="desplazable"><table class="tabla"><thead><tr><th>Cliente</th><th class="num">Horas</th><th>Destinatario</th><th>Estado</th></tr></thead><tbody>${filasResumen}</tbody></table></div>
+        <div class="flex flex-wrap gap-2">
+            <button type="button" class="boton-sec" data-gen="editar">✏️ Volver a la revisión</button>
+            <button type="button" class="boton-sec" data-gen="nueva">＋ Nueva acta</button>
+        </div>`;
+    mostrarPanel("archivos");
+}
+async function accionArchivo(a, accion, boton) {
+    if (accion === "ver") abrirVista(a.nombreHtml, a.html);
+    else if (accion === "copiar") await copiarParaOutlook(a.html, boton);
+    else if (accion === "html") await guardar(a.nombreHtml, new Blob([a.html], { type: "text/html" }));
+    else if (accion === "eml") await guardar(a.nombreEml.replace(/\.eml$/, ".zip"), await zipDe([a], false));
+}
+$("panelArchivos").addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-gen]"); if (!b) return;
+    const accion = b.dataset.gen;
+    if (accion === "todo") return guardar(`Actas_${revision?.carpeta || "Consensus"}.zip`, await zipDe(archivosGenerados, true));
+    if (accion === "editar") { mostrarPanel("revision"); renderRevision(); return; }
+    if (accion === "nueva") { revision = null; archivosGenerados = []; mostrarPanel("vacio"); return; }
+    await accionArchivo(archivosGenerados[+b.dataset.i], accion, b);
+});
+
+// Historial privado del consultor en la base del artefacto (data/users/<id>/historial/actas)
+const coleccionHistorial = () => cap.db && idViewer ? cap.db.collection(`data/users/${idViewer}/historial/actas`) : null;
+let historial = [];
+async function guardarEnHistorial(items) {
+    const col = coleccionHistorial(); if (!col) return;
+    for (const a of items) {
+        try {
+            await conLimite(10000, col.add({ creado: Date.now(), tipo: a.tipo, cliente: a.cliente, carpeta: a.carpeta, nombreHtml: a.nombreHtml,
+                nombreEml: a.nombreEml, para: a.para, asunto: a.asunto, htmlCid: a.htmlCid, de: a.de }));
+        } catch { avisoArchivos("Algunas actas no se pudieron guardar en «Mis actas». Descárgalas ahora.", "atencion"); }
+    }
+}
+function completarDesdeHistorial(d) {
+    return { ...d, html: htmlParaArchivo(d.htmlCid), eml: construirEML({ para: d.para, asunto: d.asunto, html: d.htmlCid, de: d.de }) };
+}
+async function cargarHistorial() {
+    const lista = $("listaHistorial"), col = coleccionHistorial();
+    if (!col) { lista.innerHTML = `<div class="vacio">El historial está disponible al abrir el artefacto en claude.ai con tu cuenta.</div>`; return; }
+    lista.innerHTML = `<div class="vacio"><div class="girando mb-2"></div>Cargando tus actas…</div>`;
+    try {
+        const snap = await conLimite(10000, col.orderBy("creado", "desc").limit(100).get());
+        historial = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch { lista.innerHTML = `<div class="aviso aviso-error">No se pudo cargar el historial. Pulsa «Actualizar» para intentarlo de nuevo.</div>`; return; }
+    if (!historial.length) { lista.innerHTML = `<div class="vacio"><p class="font-semibold" style="color: var(--tinta)">Aún no tienes actas guardadas</p><p class="mt-1">Cada acta que generes aparecerá aquí para volver a descargarla.</p></div>`; return; }
+    lista.innerHTML = `<div class="text-xs">${historial.map((a, i) => filaArchivo(a, i, "hist")).join("")}</div>`;
+}
+$("btnRecargarHistorial").addEventListener("click", cargarHistorial);
+$("listaHistorial").addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-hist]"); if (!b) return;
+    const d = historial[+b.dataset.i];
+    if (b.dataset.hist === "borrar") {
+        // Confirmación dentro de la página (el visor no muestra confirm())
+        b.outerHTML = `<span class="inline-flex items-center gap-1 text-[11px]">¿Eliminar? <button type="button" class="boton-sec" data-hist="confirmar" data-i="${b.dataset.i}">Sí</button><button type="button" class="boton-sec" data-hist="cancelar">No</button></span>`;
+        return;
+    }
+    if (b.dataset.hist === "cancelar") return cargarHistorial();
+    if (b.dataset.hist === "confirmar") { try { await conLimite(10000, coleccionHistorial().doc(d.id).delete()); } catch { } return cargarHistorial(); }
+    await accionArchivo(completarDesdeHistorial(d), b.dataset.hist, b);
+});
+
+// ---------- Envío del formulario: analizar con Claude ----------
 $("formActa").addEventListener("submit", async (e) => {
     e.preventDefault();
-    if (!cap.sample) { estadoError("Abre este artefacto en claude.ai para generar actas."); return; }
+    limpiarErrores();
+    if (!cap.sample) { errorGeneral("Abre este artefacto en claude.ai para redactar actas con Claude."); return; }
     const btn = $("btnSubmit"), textoBtn = btn.innerHTML;
-    btn.disabled = true; btn.innerHTML = "⏳ Procesando con Claude...";
-    $("btnDetener").classList.remove("hidden");
+    btn.disabled = true; btn.innerHTML = "⏳ Analizando con Claude…";
+    $("btnDetener").hidden = false;
     controlador = new AbortController();
-    archivosGenerados = []; pintarDescargas(); quill.setText("");
+    revision = null; mostrarPanel("vacio");
     try {
-        const resumen = tipoProceso === "implementacion" ? await procesarImplementacion() : await procesarConsultoria();
-        if (resumen) {
-            mostrarResumen(resumen);
-            pintarDescargas();
-            $("badgeCarpeta").textContent = `${carpetaActual}/`;
-            const n = archivosGenerados.length;
-            if (n) setEstado(`<div class="p-2.5 bg-green-50 border border-green-200 rounded-lg text-green-800 text-xs text-left">
-                <p class="font-bold text-green-900">✅ Proceso finalizado. ${n} acta(s) generada(s).</p>
-                <p class="text-gray-600 mt-1">Descarga los archivos desde el panel de arriba.</p></div>`);
-            if (tipoProceso === "consultoria" && n) { $("transcripcion").value = ""; $("informacion_extra").value = ""; }
-            $("archivos").value = ""; $("listaArchivos").textContent = "";
+        if (tipoProceso === "implementacion") {
+            await analizarImplementacion();
+        } else {
+            const r = await analizarConsultoria();
+            if (r) { revision = { ...r, sel: 0 }; mostrarPanel("revision"); renderRevision(); }
         }
+        if (revision) { renderRevision(); guardarBorrador(); estadoProceso("Revisa el acta y pulsa «Generar» cuando esté lista."); }
+        else estadoProceso("");
     } catch (err) {
-        estadoError(mensajeClaude(err));
-        if (archivosGenerados.length) pintarDescargas();
+        estadoProceso("");
+        errorGeneral(mensajeClaude(err));
+        if (revision) renderRevision();
     } finally {
         btn.disabled = !cap.sample; btn.innerHTML = textoBtn;
-        $("btnDetener").classList.add("hidden");
+        $("btnDetener").hidden = true;
         controlador = null;
     }
 });
 $("btnDetener").addEventListener("click", () => controlador?.abort());
 
-// ---------- Perfil de firma (cuenta de claude.ai + datos guardados en el db privado del consultor) ----------
+// ---------- Perfil de firma ----------
+function leerFormPerfil() {
+    return {
+        nombre: limpiarCampo($("perfil_nombre").value), email: limpiarCampo($("perfil_email").value).toLowerCase(),
+        cargo: limpiarCampo($("perfil_cargo").value) || CARGO_DEFAULT, celular: limpiarCampo($("perfil_celular").value, 40),
+        telefono: limpiarCampo($("perfil_telefono").value, 40) || TELEFONO_DEFAULT,
+    };
+}
+const actualizarPreviaFirma = () => {
+    const p = leerFormPerfil();
+    $("previaFirma").innerHTML = firmaHTML({ ...p, nombre: p.nombre || "Tu nombre", email: p.email || "tu.correo@consensussa.com" })
+        .replace("cid:imagen_firma", `data:image/jpeg;base64,${FIRMA_B64}`);
+};
+$("formPerfil").addEventListener("input", actualizarPreviaFirma);
 function aplicarPerfil() {
     $("lblUsuarioNombre").textContent = perfil?.nombre || "";
     $("lblUsuarioCargo").textContent = perfil?.cargo || "";
@@ -984,45 +1375,48 @@ function aplicarPerfil() {
 }
 function abrirPerfil(editando) {
     const p = perfil || {};
-    $("perfil_nombre").value = p.nombre || $("perfil_nombre").value;
-    $("perfil_email").value = p.email || $("perfil_email").value;
+    if (p.nombre) $("perfil_nombre").value = p.nombre;
+    if (p.email) $("perfil_email").value = p.email;
     $("perfil_cargo").value = p.cargo || CARGO_DEFAULT;
     $("perfil_celular").value = p.celular || "";
     $("perfil_telefono").value = p.telefono || TELEFONO_DEFAULT;
     $("tituloPerfil").textContent = editando ? "⚙️ Mi Perfil" : "🔒 Configura tu firma";
-    $("btnCerrarPerfil").classList.toggle("hidden", !editando);
-    $("mensajePerfil").classList.add("hidden");
-    $("modalPerfil").hidden = false;
+    $("btnCerrarPerfil").hidden = !editando;
+    $("mensajePerfil").hidden = true;
+    $("perfilCargando").hidden = true;
+    $("formPerfil").hidden = false;
+    actualizarPreviaFirma();
     $("appPrincipal").inert = true;
+    abrirModal("modalPerfil");
 }
 $("btnAbrirPerfil").addEventListener("click", () => abrirPerfil(true));
-$("btnCerrarPerfil").addEventListener("click", () => { if (perfil) aplicarPerfil(); });
+$("btnCerrarPerfil").addEventListener("click", () => { if (perfil) { aplicarPerfil(); elementoAntesDeModal?.focus?.(); } });
 $("formPerfil").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const nuevo = {
-        nombre: limpiarCampo($("perfil_nombre").value), email: limpiarCampo($("perfil_email").value).toLowerCase(),
-        cargo: limpiarCampo($("perfil_cargo").value) || CARGO_DEFAULT, celular: limpiarCampo($("perfil_celular").value, 40),
-        telefono: limpiarCampo($("perfil_telefono").value, 40) || TELEFONO_DEFAULT,
-    };
-    const msg = $("mensajePerfil");
-    if (!nuevo.nombre || !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(nuevo.email)) {
-        msg.className = "text-xs font-medium text-red-600"; msg.textContent = "❌ Escribe tu nombre completo y un correo válido."; return;
-    }
+    const nuevo = leerFormPerfil(), msg = $("mensajePerfil");
+    if (!nuevo.nombre) { msg.className = "error-campo"; msg.textContent = "Escribe tu nombre completo."; msg.hidden = false; $("perfil_nombre").focus(); return; }
+    if (!CORREO_RE.test(nuevo.email)) { msg.className = "error-campo"; msg.textContent = "Escribe un correo válido (será el remitente del .eml)."; msg.hidden = false; $("perfil_email").focus(); return; }
     let guardadoEnNube = false;
     if (cap.db && idViewer) {
         try { await conLimite(10000, cap.db.doc(`data/users/${idViewer}/perfil`).set(nuevo)); guardadoEnNube = true; } catch { }
     }
-    try { localStorage.setItem(CLAVE_LOCAL, JSON.stringify(nuevo)); } catch { }
+    escribirLocal(CLAVE_FIRMA, nuevo);
     perfil = nuevo;
     aplicarPerfil();
-    if (!guardadoEnNube && cap.db) setEstado('<span class="text-amber-700">⚠️ La firma quedó guardada solo en este navegador.</span>');
+    if (!guardadoEnNube && cap.db) estadoProceso("⚠️ La firma quedó guardada solo en este navegador.");
+    if (revision && !$("panelRevision").hidden) renderRevision();   // la vista previa usa la firma nueva
+    if (!leerLocal(CLAVE_GUIA)) $("guiaInicio").hidden = false;
 });
+$("btnCerrarGuia").addEventListener("click", () => { escribirLocal(CLAVE_GUIA, true); $("guiaInicio").hidden = true; });
 
 // ---------- Arranque ----------
 (async () => {
+    restaurarBorrador();
+    actualizarModo(); actualizarContador();
+    if (revision) { mostrarPanel("revision"); renderRevision(); }
     const usar = (n) => (window.claude?.use ? window.claude.use(n).catch(() => null) : Promise.resolve(null));
     [cap.sample, cap.user, cap.db, cap.downloads, cap.dictation] = await Promise.all(["sample", "user", "db", "downloads", "dictation"].map(usar));
-    $("avisoSinClaude").classList.toggle("hidden", !!cap.sample);
+    $("avisoSinClaude").hidden = !!cap.sample;
     $("btnSubmit").disabled = !cap.sample;
     iniciarDictado();
 
@@ -1034,15 +1428,15 @@ $("formPerfil").addEventListener("submit", async (e) => {
         if (me.name) $("perfil_nombre").value = me.name;
         if (me.email) $("perfil_email").value = me.email;
         if (cap.db && idViewer) {
-            try {
-                const snap = await conLimite(10000, cap.db.doc(`data/users/${idViewer}/perfil`).get());
-                if (snap.exists) guardado = snap.data();
-            } catch { }
+            try { const snap = await conLimite(10000, cap.db.doc(`data/users/${idViewer}/perfil`).get()); if (snap.exists) guardado = snap.data(); } catch { }
         }
     }
-    if (!guardado) { try { guardado = JSON.parse(localStorage.getItem(CLAVE_LOCAL) || "null"); } catch { } }
+    if (!guardado) guardado = leerLocal(CLAVE_FIRMA);
     if (guardado?.nombre && guardado?.email) perfil = guardado;
     aplicarPerfil();
     if (!perfil) abrirPerfil(false);
+    else if (!leerLocal(CLAVE_GUIA)) $("guiaInicio").hidden = false;
+    if (revision) renderRevision();
+    if (tipoProceso === "historial") cargarHistorial();
 })();
 </script>
