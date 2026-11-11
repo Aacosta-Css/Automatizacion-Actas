@@ -431,12 +431,23 @@ async function leerTexto(file) {
     try { return new TextDecoder("utf-8", { fatal: true }).decode(buf).replace(/^﻿/, ""); }
     catch { return new TextDecoder("windows-1252").decode(buf); }
 }
+// Fila de encabezados: la primera con al menos 3 celdas cortas que parezcan nombres de columna
+const PALABRAS_ENCABEZADO = /fecha|date|descripcion|actividad|hora|cuenta|cliente|persona|recurso|correo|e-?mail|tipo|accion|inicio|fin|responsable/;
+function filaEncabezados(filas) {
+    for (let r = 0; r < Math.min(filas.length, 60); r++) {
+        const celdas = filas[r].map(textoCelda).filter(Boolean);
+        if (celdas.filter(c => c.length <= 40 && PALABRAS_ENCABEZADO.test(normalizar(c))).length >= 3) return r;
+    }
+    return 0;
+}
 async function leerExcel(file) {
     const wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: "array", cellDates: true });
     const hojas = [];
     for (const nombre of wb.SheetNames) {
         const filas = XLSX.utils.sheet_to_json(wb.Sheets[nombre], { header: 1, raw: true, defval: "" })
             .filter(f => f.some(c => textoCelda(c) !== ""));        // quita filas totalmente vacías
+        const inicioTabla = filaEncabezados(filas);
+        filas.splice(0, inicioTabla);                               // descarta título y criterios del reporte
         if (filas.length < 2) continue;
         const ancho = Math.max(...filas.map(f => f.length));
         const usadas = [...Array(ancho).keys()].filter(i => filas.some(f => textoCelda(f[i]) !== ""));  // quita columnas vacías
@@ -479,8 +490,17 @@ const CAMPOS = [
     ["horas", "Horas", true], ["fecha_fin", "Fecha de fin"], ["hora_inicio", "Hora inicio (si va aparte)"], ["hora_fin", "Hora fin (si va aparte)"],
     ["recurso", "Persona / Recurso"], ["correo", "Correo responsable"], ["tipo", "Tipo de actividad"], ["accion", "Acción"], ["estado", "Estado"],
 ];
-function detectarColumnas(encabezados) {
+function detectarColumnas(encabezados, datos = []) {
     const n = encabezados.map(normalizar), usado = new Set(), r = {};
+    const esTexto = (v) => { const s = textoCelda(v); return s && !/^[\d\s.,\-–—]+$/.test(s); };
+    const candidatosCliente = n.map((h, i) => /cuenta|cliente|customer|account|razon social/.test(h) ? i : -1).filter(i => i >= 0);
+    if (candidatosCliente.length) {
+        const muestra = datos.slice(0, 200);
+        const puntaje = (i) => muestra.filter(f => esTexto(f[i])).length;
+        r.cliente = candidatosCliente.reduce((mejor, i) => puntaje(i) > puntaje(mejor) ? i : mejor);
+        usado.add(r.cliente);
+        candidatosCliente.forEach(i => usado.add(i));        // la otra «Cuenta» (NIT) no se usa para otro campo
+    }
     const buscar = (campo, pred) => { if (r[campo] >= 0) return; const i = n.findIndex((h, k) => !usado.has(k) && pred(h)); r[campo] = i; if (i >= 0) usado.add(i); };
     buscar("hora_inicio", h => h.startsWith("hora") && /inicio|start/.test(h) && !h.includes("fecha"));
     buscar("hora_fin", h => h.startsWith("hora") && /fin|final|end/.test(h) && !h.includes("fecha"));
@@ -511,6 +531,7 @@ function analizarExcel(numeroMes, anio) {
         const ix = excelCargado.mapeos[h];
         if (CAMPOS.filter(c => c[2]).some(([c]) => ix[c] < 0)) { res.hojasSinColumnas.push(hoja.nombre); return; }
         for (const fila of hoja.datos) {
+            if (fila.filter(c => textoCelda(c) !== "").length <= 1) continue;
             res.total++;
             const clave = JSON.stringify(fila.map(textoCelda));
             if (vistos.has(clave)) { res.duplicados++; continue; }
@@ -839,7 +860,7 @@ $("archivos").addEventListener("change", async () => {
     try {
         const hojas = await leerExcel(excel);
         if (!hojas.length) { errorGeneral("El Excel no tiene hojas con datos."); return; }
-        excelCargado = { nombre: excel.name, hojas, mapeos: hojas.map(h => detectarColumnas(h.encabezados)) };
+        excelCargado = { nombre: excel.name, hojas, mapeos: hojas.map(h => detectarColumnas(h.encabezados, h.datos)) };
     } catch { errorGeneral("No se pudo leer el Excel. Verifica que no esté dañado ni protegido con contraseña."); }
     renderPreviaExcel();
 });
@@ -1074,6 +1095,7 @@ async function analizarImplementacion() {
     if (r.duplicados) avisos.push(`${r.duplicados} registro(s) duplicado(s) exacto(s) descartado(s).`);
     if (r.horasCero) avisos.push(`${r.horasCero} registro(s) con horas en 0 descartado(s).`);
     if (r.incompletos) avisos.push(`${r.incompletos} registro(s) sin cliente, actividad o fecha descartado(s).`);
+    if (excelCargado.mapeos.every(m => m.correo < 0)) avisos.push("El Excel no trae columna de correo del responsable: escribe el destinatario en «Para» de cada cliente antes de generar.");
     const actas = [...r.clientes.values()].map(c => {
         const correos = [...new Set(c.filas.flatMap(f => f.correo.split(/[,;\s]+/)).map(s => s.trim().toLowerCase()).filter(s => CORREO_RE.test(s)))];
         const seguro = nombreSeguro(c.cliente, "Cliente");
