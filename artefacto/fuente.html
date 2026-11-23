@@ -133,10 +133,23 @@
                 </div>
                 <div class="pasos">
                     <div class="paso"><b>1</b><span><strong>Elige el tipo de acta</strong> y completa los datos del cliente o adjunta el Excel del mes.</span></div>
-                    <div class="paso"><b>2</b><span><strong>El artefacto trae la transcripción de Teams</strong> de tu calendario; si no hay, adjunta otra fuente, dicta o escribe notas. Claude redacta un párrafo por tema.</span></div>
+                    <div class="paso"><b>2</b><span><strong>El artefacto trae la transcripción de Teams</strong> de tu calendario; si no hay, adjunta otra fuente, dicta o escribe notas. Claude agrupa las actividades por tema, en viñetas.</span></div>
                     <div class="paso"><b>3</b><span><strong>Revisa y corrige</strong> lo que propone Claude, mirando la vista previa del correo.</span></div>
                     <div class="paso"><b>4</b><span><strong>Genera y descarga</strong> el .html y el .eml. Quedan guardados en <em>Mis actas</em>.</span></div>
                 </div>
+            </div>
+            <!-- Novedades: se muestran una vez a quien ya usaba el artefacto (los nuevos ven la guía de inicio) -->
+            <div id="novedades" class="tarjeta" hidden>
+                <div class="flex flex-wrap items-start justify-between gap-3 mb-2">
+                    <h2 class="mb-0">✨ Novedades en las actas de consultoría</h2>
+                    <button type="button" id="btnCerrarNovedades" class="boton-sec">Entendido</button>
+                </div>
+                <ul class="text-sm space-y-2" style="color: var(--tinta)">
+                    <li>🎧 <strong>Transcripción de Teams automática.</strong> Al escribir el cliente y la fecha, el artefacto busca la reunión de Teams en tu calendario de Outlook y usa su transcripción como fuente principal del acta. Puedes elegir otra reunión o no usarla. La primera vez te pedirá permiso para leer Microsoft 365.</li>
+                    <li>📝 <strong>Actividades agrupadas por tema.</strong> Cada tema sale en negrita con sus actividades en viñetas cortas, sin numeración, para que el correo sea fácil de leer.</li>
+                    <li>📄 <strong>Archivo fuente.</strong> Si la sesión no fue en Teams o no se transcribió, adjunta otra transcripción (.docx o .vtt) o documentos, dicta o escribe tus notas.</li>
+                </ul>
+                <p class="text-[11px] mt-2" style="color: var(--tinta-suave)">La transcripción solo existe si alguien activó «Transcribir» durante la reunión de Teams.</p>
             </div>
             <div id="avisoBorrador" class="aviso aviso-info flex flex-wrap items-center justify-between gap-2" hidden>
                 <span id="textoBorrador"></span>
@@ -351,6 +364,11 @@ const TELEFONO_DEFAULT = "601 7431624";
 const CLAVE_FIRMA = "consensus_firma_consultor";
 const CLAVE_BORRADOR = "consensus_borrador_v1";
 const CLAVE_GUIA = "consensus_guia_vista";
+const CLAVE_NOVEDADES = "consensus_novedades_2026_11_teams";   // cambiar la clave en cada anuncio nuevo
+// Quien ya usaba el artefacto (vio la guía) recibe las novedades una vez; quien llega nuevo ve la guía, que ya las incluye
+function mostrarNovedades() {
+    $("novedades").hidden = !(perfil && leerLocal(CLAVE_GUIA) && !leerLocal(CLAVE_NOVEDADES));
+}
 const CLAVE_DIRECTORIO = "consensus_directorio_v1";
 const CONECTOR_M365 = "Microsoft 365";
 const CORREO_RE = /^[^\s@<>,;]+@[^\s@<>,;]+\.[^\s@<>,;]+$/;
@@ -1712,7 +1730,8 @@ $("formPerfil").addEventListener("submit", async (e) => {
     if (revision && !$("panelRevision").hidden) renderRevision();   // la vista previa usa la firma nueva
     if (!leerLocal(CLAVE_GUIA)) $("guiaInicio").hidden = false;
 });
-$("btnCerrarGuia").addEventListener("click", () => { escribirLocal(CLAVE_GUIA, true); $("guiaInicio").hidden = true; });
+$("btnCerrarGuia").addEventListener("click", () => { escribirLocal(CLAVE_GUIA, true); escribirLocal(CLAVE_NOVEDADES, true); $("guiaInicio").hidden = true; });
+$("btnCerrarNovedades").addEventListener("click", () => { escribirLocal(CLAVE_NOVEDADES, true); $("novedades").hidden = true; });
 
 // ---------- Transcripción de Teams (Microsoft 365: calendario → evento → transcripción) ----------
 let reunionesTeams = [];                  // reuniones de Teams del día de la sesión
@@ -1864,6 +1883,7 @@ document.querySelectorAll(".fx-tab").forEach(t => t.addEventListener("click", ()
     aplicarPerfil();
     if (!perfil) abrirPerfil(false);
     else if (!leerLocal(CLAVE_GUIA)) $("guiaInicio").hidden = false;
+    mostrarNovedades();
     if (revision) renderRevision();
     if (tipoProceso === "historial") cargarHistorial();
     buscarReunionesTeams();
