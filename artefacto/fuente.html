@@ -133,7 +133,7 @@
                 </div>
                 <div class="pasos">
                     <div class="paso"><b>1</b><span><strong>Elige el tipo de acta</strong> y completa los datos del cliente o adjunta el Excel del mes.</span></div>
-                    <div class="paso"><b>2</b><span><strong>Dicta, pega la transcripción o adjunta archivos.</strong> Claude redacta las actividades.</span></div>
+                    <div class="paso"><b>2</b><span><strong>El artefacto trae la transcripción de Teams</strong> de tu calendario; si no hay, adjunta otra fuente, dicta o escribe notas. Claude redacta un párrafo por tema.</span></div>
                     <div class="paso"><b>3</b><span><strong>Revisa y corrige</strong> lo que propone Claude, mirando la vista previa del correo.</span></div>
                     <div class="paso"><b>4</b><span><strong>Genera y descarga</strong> el .html y el .eml. Quedan guardados en <em>Mis actas</em>.</span></div>
                 </div>
@@ -191,6 +191,30 @@
                     <hr class="border-gray-100">
                     <div>
                         <h2>2. Insumos para el Acta</h2>
+                        <p id="ayudaFuentes" class="text-[11px] text-gray-600 mb-2">Usa una o varias fuentes: la transcripción de Teams, un archivo fuente, el dictado o tus notas. Ninguna es obligatoria por sí sola.</p>
+                        <!-- Transcripción de Teams leída automáticamente desde Microsoft 365 (calendario → reunión → transcripción) -->
+                        <div id="bloqueTeams" class="mb-3 aviso aviso-info text-xs space-y-2">
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                <span class="font-bold" style="color: var(--tinta)">🎧 Transcripción de la reunión de Teams</span>
+                                <label class="flex items-center gap-1.5 font-semibold"><input type="checkbox" id="usar_teams" checked> Usarla como fuente principal</label>
+                            </div>
+                            <div id="teamsCuerpo" class="space-y-1.5">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <label for="reunionTeams" class="sr-only">Reunión de Teams</label>
+                                    <select id="reunionTeams" class="campo flex-1" style="min-width: 0"><option value="">Escribe el cliente y la fecha de la sesión…</option></select>
+                                    <button type="button" id="btnBuscarTeams" class="boton-sec">🔎 Buscar de nuevo</button>
+                                </div>
+                                <p id="estadoTeams" class="text-gray-700">El artefacto busca en tu calendario de Outlook la reunión de Teams del cliente en la fecha de la sesión y trae su transcripción.</p>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="archivos" id="lblArchivos" class="etiqueta">📄 Archivo fuente: otra transcripción o documentos de la sesión</label>
+                            <p id="ayudaTeams" class="text-[11px] text-gray-600 mb-1.5">
+                                Si la sesión no fue en Teams o no se transcribió, adjunta aquí la fuente: una transcripción descargada (.docx o .vtt), un .pdf, .xlsx, .txt o imágenes de apoyo.
+                            </p>
+                            <input type="file" id="archivos" multiple class="archivo block w-full text-xs text-gray-600">
+                            <p id="listaArchivos" class="text-[11px] text-gray-500 mt-1"></p>
+                        </div>
                         <div id="bloque-dictado" class="mb-3">
                             <span class="etiqueta">🎙️ Dictado de la sesión</span>
                             <div class="flex flex-wrap items-center gap-3">
@@ -205,11 +229,6 @@
                                 <span id="contadorPalabras" class="text-[11px] text-gray-500 mb-1">0 palabras</span>
                             </div>
                             <textarea id="transcripcion" rows="4" class="campo" placeholder="Aquí aparece lo que dictas, o pega la transcripción de la reunión..." data-borrador></textarea>
-                        </div>
-                        <div class="mb-3">
-                            <label for="archivos" id="lblArchivos" class="etiqueta">📁 Archivos de Respaldo (.xlsx, .pdf, .docx, .txt, .csv, imágenes)</label>
-                            <input type="file" id="archivos" multiple class="archivo block w-full text-xs text-gray-600">
-                            <p id="listaArchivos" class="text-[11px] text-gray-500 mt-1"></p>
                         </div>
                         <!-- Vista previa del Excel (implementación): se calcula en el navegador, sin Claude -->
                         <div id="previaExcel" class="mb-3 space-y-2" hidden></div>
@@ -482,13 +501,31 @@ async function textoPDF(file) {
     for (let i = 1; i <= pdf.numPages; i++) paginas.push((await (await pdf.getPage(i)).getTextContent()).items.map(it => it.str).join(" "));
     return paginas.join("\n");
 }
+// Transcripción .vtt de Teams: quita tiempos y une las frases seguidas de cada participante ("Nombre: texto")
+function textoVTT(vtt) {
+    const lineas = [];
+    for (const bloque of vtt.replace(/\r/g, "").split(/\n{2,}/)) {
+        const filas = bloque.split("\n").filter(l => l.trim() && !/^WEBVTT|^NOTE\b|-->/.test(l) && !/^[0-9a-f-]{8,}(\/\d+-\d+)?$/i.test(l.trim()));
+        if (!filas.length) continue;
+        const crudo = filas.join(" ");
+        const v = crudo.match(/<v\s+([^>]+)>([\s\S]*?)(?:<\/v>|$)/);
+        const quien = v ? v[1].trim() : "", dicho = (v ? v[2] : crudo).replace(/<[^>]+>/g, "").trim();
+        if (!dicho) continue;
+        const previa = lineas[lineas.length - 1];
+        if (previa && previa.quien === quien) previa.dicho += " " + dicho;
+        else lineas.push({ quien, dicho });
+    }
+    return lineas.map(l => (l.quien ? `${l.quien}: ` : "") + l.dicho).join("\n");
+}
+const esTranscripcion = (nombre) => /\.vtt$|transcri|transcript/i.test(nombre);
 async function leerInsumo(file) {
     const n = file.name.toLowerCase();
+    if (n.endsWith(".vtt")) return { texto: textoVTT(await leerTexto(file)), etiqueta: "Transcripción de la reunión de Teams" };
     if (/\.(xlsx|xls)$/.test(n)) return { texto: (await leerExcel(file)).map(hojaATSV).join("\n\n"), etiqueta: "Archivo Excel" };
-    if (n.endsWith(".docx")) return { texto: (await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() })).value, etiqueta: "Documento Word" };
+    if (n.endsWith(".docx")) return { texto: (await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() })).value, etiqueta: esTranscripcion(n) ? "Transcripción de la reunión de Teams" : "Documento Word" };
     if (n.endsWith(".pdf")) return { texto: await textoPDF(file), etiqueta: "Documento PDF" };
     if (/\.(png|jpe?g|webp|gif)$/.test(n)) return { imagen: file };
-    return { texto: await leerTexto(file), etiqueta: "Archivo Adjunto" };
+    return { texto: await leerTexto(file), etiqueta: esTranscripcion(n) ? "Transcripción de la reunión de Teams" : "Archivo fuente" };
 }
 
 // ---------- Columnas del Excel de implementación (detección local, corregible) ----------
@@ -696,16 +733,42 @@ const parrafosConfirmacion = (texto) => `        <p style="margin: 0 0 12px 0; f
         </p>`;
 const detalle = (etiqueta, valor) => `          <p style="margin: 4px 0; font-size: 13px;"><strong>${esc(etiqueta)}:</strong> ${esc(valor)}</p>`;
 
+// Cada elemento es un tema: primera línea "Tema:" y debajo una línea por actividad que empieza con guion ("- ...").
+// En el correo el tema va en negrita y sus actividades como viñetas, sin numeración. Un texto sin guiones sale como un párrafo.
+const VINETA_RE = /^[-•*–]\s*/;
+function partesTema(texto) {
+    const lineas = String(texto).split("\n").map(l => l.trim()).filter(Boolean);
+    if (!lineas.length) return { titulo: "", intro: "", puntos: [] };
+    const m = lineas[0].match(/^([^:.\n]{3,80}):\s*(.*)$/);
+    const titulo = m ? m[1].trim() : "", puntos = [];
+    let intro = m ? m[2].trim() : lineas[0];
+    for (const l of lineas.slice(1)) {
+        if (VINETA_RE.test(l)) puntos.push(l.replace(VINETA_RE, ""));
+        else if (puntos.length) puntos[puntos.length - 1] += " " + l;   // línea partida: continúa la viñeta anterior
+        else intro += (intro ? " " : "") + l;
+    }
+    return { titulo, intro, puntos };
+}
+function parrafoTema(texto, ultimo) {
+    const { titulo, intro, puntos } = partesTema(texto);
+    const estiloP = `margin: 0 0 ${puntos.length ? 4 : (ultimo ? 0 : 12)}px 0; font-size: 13px; line-height: 1.7; color: #2d3748;`;
+    const cabecera = titulo
+        ? `<strong style="color: #003366;">${esc(titulo)}${intro ? "." : ""}</strong>${intro ? ` ${esc(intro)}` : ""}`
+        : esc(intro);
+    const lista = puntos.length
+        ? `\n          <ul style="margin: 0 0 ${ultimo ? 0 : 14}px 0; padding-left: 20px; font-size: 13px; line-height: 1.6; color: #2d3748;">\n${puntos.map(p => `            <li style="margin-bottom: 5px;">${esc(p)}</li>`).join("\n")}\n          </ul>`
+        : "";
+    return `          <p style="${estiloP}">${cabecera}</p>${lista}`;
+}
 function htmlConsultoria(d) {
-    const actividades = d.actividades.filter(a => a.trim()).map(a => `            <li style="margin-bottom: 8px;">${esc(a)}</li>`).join("\n");
+    const temas = d.actividades.filter(a => a.trim());
+    const actividades = temas.map((a, i) => parrafoTema(a, i === temas.length - 1)).join("\n");
     return documentoCorreo("Confirmación de Consultoría SAP Business One", "Confirmación de Consultoría Posventa - SAP Business One", `
         <p style="margin: 0 0 12px 0; font-size: 14px; line-height: 1.5;">Buen día, <strong>${esc(d.cliente)}</strong>.</p>
         <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.5;">Mediante el presente, me permito confirmar la consultoría prestada, en la cual se llevaron a cabo las siguientes actividades:</p>
         <div style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 18px 20px; margin-bottom: 25px;">
           <h3 style="margin: 0 0 12px 0; font-size: 15px; color: #003366; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px;">Actividades Realizadas</h3>
-          <ol style="margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.7; color: #2d3748;">
 ${actividades}
-          </ol>
         </div>
         <div style="background-color: #f8f9fa; border-left: 4px solid #003366; padding: 15px 20px; margin-bottom: 25px; border-radius: 0 4px 4px 0;">
           <h3 style="margin: 0 0 10px 0; font-size: 14px; color: #003366; text-transform: uppercase; letter-spacing: 0.5px;">Detalles de la Sesión</h3>
@@ -868,8 +931,11 @@ function actualizarModo() {
     $("bloque-periodo-consultoria").hidden = impl;
     $("bloque-dictado").hidden = impl;
     $("bloqueCalendario").hidden = !impl;
-    $("lblArchivos").textContent = impl ? "📊 Archivo Excel de actividades (.xlsx, .xls)" : "📁 Archivos de Respaldo (.xlsx, .pdf, .docx, .txt, .csv, imágenes)";
-    $("archivos").accept = impl ? ".xlsx,.xls" : ".xlsx,.xls,.pdf,.docx,.txt,.csv,.md,.json,.log,.sql,.png,.jpg,.jpeg,.webp";
+    $("lblArchivos").textContent = impl ? "📊 Archivo Excel de actividades (.xlsx, .xls)" : "📄 Archivo fuente: otra transcripción o documentos de la sesión";
+    $("ayudaTeams").hidden = impl;
+    $("bloqueTeams").hidden = impl;
+    $("ayudaFuentes").hidden = impl;
+    $("archivos").accept = impl ? ".xlsx,.xls" : ".vtt,.docx,.txt,.pdf,.xlsx,.xls,.csv,.md,.json,.log,.sql,.png,.jpg,.jpeg,.webp";
     $("archivos").multiple = !impl;
     renderPreviaExcel();
 }
@@ -984,6 +1050,11 @@ async function analizarConsultoria() {
     let transcripcion = $("transcripcion").value.trim();
     const avisos = [];
     if (transcripcion.length > 40000) { transcripcion = transcripcion.slice(0, 40000); avisos.push("La transcripción es muy larga: Claude leyó solo los primeros 40.000 caracteres."); }
+    // Transcripción de la reunión de Teams, leída de Microsoft 365 (fuente principal cuando existe)
+    estadoProceso("Revisando la transcripción de Teams…");
+    const teams = await transcripcionTeamsElegida(avisos);
+    let transcripcionTeams = teams?.texto || "";
+    if (transcripcionTeams.length > 100000) { transcripcionTeams = transcripcionTeams.slice(0, 100000); avisos.push("La transcripción de Teams es muy larga: Claude leyó solo los primeros 100.000 caracteres."); }
 
     estadoProceso("Leyendo archivos adjuntos...");
     let documentos = ""; const imagenes = [];
@@ -994,12 +1065,13 @@ async function analizarConsultoria() {
             else if (r.texto.trim()) documentos += `\n--- ${r.etiqueta} (${file.name}) ---\n${r.texto.trim()}\n`;
         } catch { avisos.push(`No se pudo leer el archivo ${file.name}.`); }
     }
-    if (!documentos.trim() && !notas && !transcripcion && !imagenes.length) {
-        marcarError("transcripcion", "Dicta o pega la transcripción, adjunta un archivo o escribe notas del servicio.");
+    if (!documentos.trim() && !notas && !transcripcion && !transcripcionTeams && !imagenes.length) {
+        marcarError("transcripcion", "No hay fuentes para el acta: elige la reunión de Teams, adjunta un archivo fuente, dicta o escribe notas del servicio.");
         return null;
     }
     // Límite de Claude: 256 KB por llamada; se recorta con margen para acentos y el resto del prompt
-    if (documentos.length > 90000) { documentos = documentos.slice(0, 90000) + "\n[... contenido recortado por tamaño ...]"; avisos.push("Los archivos adjuntos son muy extensos: Claude leyó solo la primera parte (unos 90.000 caracteres)."); }
+    const maxDocs = transcripcionTeams ? 60000 : 90000;
+    if (documentos.length > maxDocs) { documentos = documentos.slice(0, maxDocs) + "\n[... contenido recortado por tamaño ...]"; avisos.push(`Los archivos adjuntos son muy extensos: Claude leyó solo la primera parte (unos ${maxDocs.toLocaleString("es-CO")} caracteres).`); }
     if (imagenes.length) {
         const lim = await cap.sample.limits().catch(() => null);
         if (!lim?.images) { errorGeneral("Este navegador no puede enviar imágenes a Claude. Quita las imágenes o usa texto."); return null; }
@@ -1008,7 +1080,7 @@ async function analizarConsultoria() {
 
     const prompt = `ACTÚA COMO UN CONSULTOR SENIOR DE PROCESOS SAP BUSINESS ONE DE CONSENSUS S.A.S. ESPECIALIZADO EN CONSULTORÍA POSVENTA Y SOPORTE.
 
-Tu labor fundamental es analizar detalladamente los insumos suministrados (archivos adjuntos, notas, transcripción de la sesión${imagenes.length ? " e imágenes adjuntas" : ""}), identificar y extraer TODAS las tareas, consultas, revisiones técnicas, configuraciones, capacitaciones o actividades realizadas, para el acta de confirmación de consultoría.
+Tu labor fundamental es analizar detalladamente los insumos suministrados (transcripción de la reunión de Teams cuando exista, archivo fuente, notas, transcripción dictada${imagenes.length ? " e imágenes adjuntas" : ""}), identificar y extraer TODAS las tareas, consultas, revisiones técnicas, configuraciones, capacitaciones o actividades realizadas, para el acta de confirmación de consultoría.
 
 ==================================================
 DATOS GENERALES DEL SERVICIO:
@@ -1018,22 +1090,28 @@ DATOS GENERALES DEL SERVICIO:
 - FECHA DE EJECUCIÓN: ${fecha}
 - HORAS DE CONSULTORÍA: ${horas} horas
 
+TRANSCRIPCIÓN DE LA REUNIÓN DE TEAMS (fuente principal, leída de Microsoft 365${teams?.titulo ? `; reunión «${teams.titulo}»` : ""}):
+${transcripcionTeams || "(No se usó transcripción de Teams)"}
+
 NOTAS DEL CONSULTOR:
 ${notas || "(Ninguna nota manual ingresada)"}
 
-TRANSCRIPCIÓN DE LA SESIÓN:
+TRANSCRIPCIÓN DICTADA O PEGADA POR EL CONSULTOR:
 ${transcripcion || "(Sin transcripción)"}
 
-CONTENIDO DE LOS ARCHIVOS ADJUNTOS:
-${documentos.trim() || "(Ningún contenido de texto en archivos adjuntos)"}
+ARCHIVO FUENTE (transcripción de Teams y documentos de la sesión):
+${documentos.trim() || "(Ningún archivo fuente adjunto)"}
 ==================================================
 
 REGLAS CRÍTICAS DE EXTRACCIÓN Y PROCESAMIENTO:
-1. EXTRACCIÓN TOTAL DE ACTIVIDADES REALIZADAS:
-   - Extrae e identifica CADA UNA de las tareas, requerimientos, consultas, revisiones, desarrollos o configuraciones técnicas contenidas en los insumos.
-   - Redacta cada actividad con tono profesional, técnico y formal para SAP Business One (ejemplo: "Revisión y parametrización de...", "Análisis y depuración de error en...", "Capacitación al equipo de...", "Validación de informes y consultas SQL en...").
+1. EXTRACCIÓN TOTAL DE ACTIVIDADES, AGRUPADAS POR TEMA:
+   - Extrae e identifica CADA UNA de las tareas, requerimientos, consultas, revisiones, desarrollos o configuraciones técnicas contenidas en los insumos. No omitas ninguna.
+   - Agrupa las actividades que tratan el MISMO TEMA (el mismo proceso, funcionalidad, módulo, informe o requerimiento) en UN SOLO PÁRRAFO por tema. No repartas un mismo tema en varios párrafos ni mezcles temas distintos en un párrafo.
+   - Para cada tema da un título corto (máximo 8 palabras, sin punto final) y una lista de puntos en orden lógico: un punto por cada actividad o cambio de actividad dentro del tema (lo revisado, configurado, demostrado o validado, el resultado y las limitaciones encontradas). Cada punto debe ser breve y fácil de leer: una o dos oraciones. No numeres los puntos ni los temas. Conserva los datos concretos (rutas de menú, cuentas, documentos, fechas).
+   - Redacta con tono profesional, técnico y formal para SAP Business One, en tercera persona impersonal (ejemplo: "Se revisó y parametrizó...", "Se analizó y depuró el error en...", "Se capacitó al equipo de...", "Se validaron los informes y consultas SQL de...").
+   - Ordena los temas según su peso en la sesión, de mayor a menor.
    - PROHIBIDO TERMINANTEMENTE dejar la lista vacía o escribir textos genéricos o corchetes de plantilla. Todo el contenido debe ser concreto y real; no inventes actividades que no estén en los insumos.
-   - Si los insumos contienen varios puntos o viñetas, incluye TODOS y cada uno de ellos como actividades separadas.
+   - Si hay una transcripción de la reunión de Teams, es la FUENTE PRINCIPAL: toma de ella lo que realmente se trabajó en la sesión e ignora saludos, conversación informal, problemas de conexión y temas ajenos al servicio.
 2. OBSERVACIONES:
    - Si en los insumos se menciona alguna observación, dificultad, acuerdo o pendiente relevante para el cliente, redáctala claramente.
    - Si no hay observaciones explícitas, usa exactamente: Ninguna.
@@ -1041,7 +1119,7 @@ REGLAS CRÍTICAS DE EXTRACCIÓN Y PROCESAMIENTO:
    - Si en los insumos aparece el correo electrónico del responsable del cliente, devuélvelo; si no, deja el campo vacío. No inventes direcciones.
 
 FORMATO DE RESPUESTA: responde SOLO con un objeto JSON, sin texto adicional:
-{"actividades": ["Actividad 1 redactada", "Actividad 2 redactada"], "observaciones": "Texto o Ninguna", "destinatario": "correo@cliente.com o vacío"}`;
+{"temas": [{"tema": "Título corto del tema", "puntos": ["Primera actividad del tema, en una o dos oraciones.", "Siguiente actividad o resultado del mismo tema."]}], "observaciones": "Texto o Ninguna", "destinatario": "correo@cliente.com o vacío"}`;
 
     // Destinatario: el Responsable (Cliente). Si es un nombre, se busca su correo en Outlook (Microsoft 365)
     let correoResponsable = CORREO_RE.test(responsable) ? responsable : null;
@@ -1054,7 +1132,16 @@ FORMATO DE RESPUESTA: responde SOLO con un objeto JSON, sin texto adicional:
     }
     estadoProceso("Claude está redactando el acta de consultoría…");
     const r = await pedirJSON(prompt, imagenes.length ? { images: imagenes } : {});
-    const actividades = (Array.isArray(r?.actividades) ? r.actividades : []).map(a => capitalizar(String(a))).filter(Boolean);
+    // Un elemento por tema: "Tema:" y una línea "- actividad" por cada punto (editable en la revisión)
+    const temas = Array.isArray(r?.temas) ? r.temas : [];
+    const actividades = (temas.length
+        ? temas.map(t => {
+            const tema = capitalizar(String(t?.tema || "").replace(/[:.\s]+$/, "").trim());
+            const puntos = (Array.isArray(t?.puntos) ? t.puntos : [t?.descripcion]).map(p => capitalizar(String(p || "").replace(VINETA_RE, "").trim())).filter(Boolean);
+            if (!puntos.length) return tema;
+            return tema ? `${tema}:\n${puntos.map(p => `- ${p}`).join("\n")}` : puntos.map(p => `- ${p}`).join("\n");
+        })
+        : (Array.isArray(r?.actividades) ? r.actividades : []).map(a => capitalizar(String(a)))).filter(Boolean);
     if (!actividades.length) { errorGeneral("Claude no encontró actividades en los insumos. Agrega más detalle e inténtalo de nuevo."); return null; }
     const destinatario = String(r.destinatario || "").trim();
     let para = responsable;
@@ -1339,19 +1426,19 @@ function editorActa(a) {
     if (a.tipo === "consultoria") {
         detalleHtml = `
         <div>
-            <span class="etiqueta">Actividades realizadas</span>
+            <span class="etiqueta">Actividades realizadas (agrupadas por tema)</span>
+            <p class="text-[11px] text-gray-500 mb-1.5">Primera línea: el tema terminado en dos puntos (sale en negrita). Debajo, una actividad por línea empezando con guion (-): cada una sale como viñeta.</p>
             <div class="space-y-1.5">${a.datos.actividades.map((t, i) => `
                 <div class="flex items-start gap-1.5">
-                    <span class="text-xs text-gray-500 pt-2 w-5 text-right flex-none">${i + 1}.</span>
-                    <textarea class="campo" rows="2" data-actividad="${i}" aria-label="Actividad ${i + 1}">${esc(t)}</textarea>
+                    <textarea class="campo" rows="${Math.min(10, Math.max(3, String(t).split("\n").length + 1))}" data-actividad="${i}" aria-label="Tema ${i + 1}">${esc(t)}</textarea>
                     <div class="flex flex-col gap-1">
                         <button type="button" class="boton-icono" data-accion="subir" data-i="${i}" aria-label="Subir" ${i === 0 ? "disabled" : ""}>↑</button>
                         <button type="button" class="boton-icono" data-accion="bajar" data-i="${i}" aria-label="Bajar" ${i === a.datos.actividades.length - 1 ? "disabled" : ""}>↓</button>
                     </div>
-                    <button type="button" class="boton-icono" data-accion="quitar" data-i="${i}" aria-label="Quitar actividad">✕</button>
+                    <button type="button" class="boton-icono" data-accion="quitar" data-i="${i}" aria-label="Quitar tema">✕</button>
                 </div>`).join("")}
             </div>
-            <button type="button" class="boton-sec mt-2" data-accion="agregar">＋ Agregar actividad</button>
+            <button type="button" class="boton-sec mt-2" data-accion="agregar">＋ Agregar tema</button>
         </div>
         <label class="etiqueta">Observaciones<textarea class="campo mt-1 font-normal" rows="2" data-acta-dato="observaciones">${esc(a.datos.observaciones)}</textarea></label>`;
     } else {
@@ -1627,6 +1714,129 @@ $("formPerfil").addEventListener("submit", async (e) => {
 });
 $("btnCerrarGuia").addEventListener("click", () => { escribirLocal(CLAVE_GUIA, true); $("guiaInicio").hidden = true; });
 
+// ---------- Transcripción de Teams (Microsoft 365: calendario → evento → transcripción) ----------
+let reunionesTeams = [];                  // reuniones de Teams del día de la sesión
+const transcripcionesTeams = new Map();   // uri del evento → { texto, minutos, participantes } o { error }
+let busquedaTeams = 0, cargaTeams = 0;    // descartan respuestas de búsquedas ya superadas
+const textoBloques = (res) => (res?.content || []).filter(b => b?.type === "text").map(b => b.text).join("\n");
+// La reunión del cliente se reconoce por el nombre del cliente en el asunto, el dominio de sus invitados o el responsable
+function puntajeReunion(r, cliente, responsable) {
+    const claves = clavesCliente(cliente), resp = normalizar(responsable);
+    let p = 0;
+    if (claves.some(k => normalizar(r.titulo).includes(k))) p += 2;
+    if (claves.some(k => r.dominios.some(d => d.includes(k)))) p += 3;
+    if (resp && resp !== "responsable" && r.asistentes.some(a => (a.name && normalizar(a.name).includes(resp)) || a.address === resp)) p += 3;
+    return p;
+}
+async function buscarReunionesTeams() {
+    const sel = $("reunionTeams"), estado = $("estadoTeams");
+    if (tipoProceso !== "consultoria" || !$("usar_teams").checked) return;
+    if (!cap.mcp) {
+        sel.innerHTML = `<option value="">No disponible aquí</option>`;
+        estado.textContent = "Para traer la transcripción de Teams, abre el artefacto en claude.ai con Microsoft 365 conectado. Mientras tanto usa un archivo fuente, el dictado o tus notas.";
+        return;
+    }
+    const f = $("fecha_ejecucion").value;
+    if (!f) { estado.textContent = "Indica la fecha de la sesión para buscar la reunión de Teams."; return; }
+    const id = ++busquedaTeams;
+    estado.textContent = `🔎 Buscando tus reuniones de Teams del ${f.split("-").reverse().join("/")}…`;
+    try {
+        const [a, m, d] = f.split("-").map(Number), sig = new Date(a, m - 1, d + 1);
+        const res = await cap.mcp.callTool(CONECTOR_M365, "outlook_calendar_search", { query: "*", afterDateTime: `${f}T00:00:00`,
+            beforeDateTime: `${sig.getFullYear()}-${pad(sig.getMonth() + 1)}-${pad(sig.getDate())}T00:00:00`, order: "oldest", limit: 25, offset: 0 });
+        if (id !== busquedaTeams) return;
+        const dominioPropio = (perfil?.email || "").split("@")[1] || "consensussa.com";
+        reunionesTeams = objetosJSON(textoBloques(res))
+            .filter(e => e.subject !== undefined && !esVerdadero(e.isCancelled) && /teams/i.test(`${e.location || ""} ${e.summary || ""}`))
+            .map(e => {
+                const asistentes = (Array.isArray(e.namedAttendees) ? e.namedAttendees : (Array.isArray(e.attendees) ? e.attendees : []).map(x => ({ address: x })))
+                    .map(x => ({ name: String(x?.name || ""), address: String(x?.address || "").toLowerCase() }));
+                return { uri: e.uri || `calendar:///events/${e.id}`, titulo: limpiarTitulo(e.subject), inicio: fechaLocal(e.start?.dateTime), fin: fechaLocal(e.end?.dateTime), asistentes,
+                    dominios: [...new Set(asistentes.map(x => x.address.split("@")[1] || "").filter(dd => dd && dd !== dominioPropio))] };
+            });
+        pintarReunionesTeams();
+    } catch { if (id === busquedaTeams) estado.textContent = "No se pudo consultar tu calendario de Outlook. Pulsa «Buscar de nuevo» o usa otra fuente."; }
+}
+function pintarReunionesTeams() {
+    const sel = $("reunionTeams"), estado = $("estadoTeams");
+    delete estado.dataset.sinCoincidencia;
+    if (!reunionesTeams.length) {
+        sel.innerHTML = `<option value="">Sin reuniones de Teams ese día</option>`;
+        estado.textContent = "No encontré reuniones de Teams en tu calendario para esa fecha. Usa un archivo fuente, el dictado o tus notas.";
+        return;
+    }
+    const cliente = $("nombre_cliente").value.trim(), responsable = $("responsable_cliente").value.trim();
+    const mejor = reunionesTeams.map(r => ({ r, p: puntajeReunion(r, cliente, responsable) })).reduce((x, y) => (y.p > x.p ? y : x));
+    const elegida = mejor.p > 0 ? mejor.r : (reunionesTeams.length === 1 ? reunionesTeams[0] : null);
+    const previa = sel.value;
+    sel.innerHTML = `<option value="">— No usar transcripción de Teams —</option>` + reunionesTeams.map(r =>
+        `<option value="${esc(r.uri)}">${esc(`${r.inicio ? fmtHora(r.inicio) : ""}–${r.fin ? fmtHora(r.fin) : ""} · ${r.titulo}`)}</option>`).join("");
+    sel.value = reunionesTeams.some(r => r.uri === previa) ? previa : (elegida?.uri || "");
+    if (!sel.value) {
+        estado.dataset.sinCoincidencia = "1";
+        estado.textContent = `Encontré ${plural(reunionesTeams.length, "reunión", "reuniones")} de Teams ese día, pero ninguna coincide con el cliente. Elige la correcta en la lista o usa otra fuente.`;
+    }
+    cargarTranscripcionTeams();
+}
+async function obtenerTranscripcionTeams(uri) {
+    if (transcripcionesTeams.has(uri)) return transcripcionesTeams.get(uri);
+    const ev = objetosJSON(textoBloques(await cap.mcp.callTool(CONECTOR_M365, "read_resource", { uri }, { signal: controlador?.signal })))[0] || {};
+    let dato;
+    if (!ev.meetingTranscriptUrl) dato = { error: "Esta reunión no tiene un enlace de Teams del que leer la transcripción." };
+    else {
+        const tr = objetosJSON(textoBloques(await cap.mcp.callTool(CONECTOR_M365, "read_resource", { uri: ev.meetingTranscriptUrl }, { signal: controlador?.signal })))[0] || {};
+        const partes = (Array.isArray(tr.transcripts) ? tr.transcripts : []).filter(t => t?.content)
+            .sort((x, y) => String(x.createdDateTime).localeCompare(String(y.createdDateTime)));
+        if (!partes.length) dato = { error: "La reunión no tiene transcripción: no se activó en Teams o todavía no está disponible." };
+        else {
+            const texto = partes.map(t => textoVTT(String(t.content))).join("\n");
+            const minutos = Math.round(partes.reduce((s, t) => s + ((Date.parse(t.endDateTime) - Date.parse(t.createdDateTime)) || 0), 0) / 60000);
+            const participantes = [...new Set(texto.split("\n").map(l => (l.match(/^([^:]{2,60}):/) || [])[1]).filter(Boolean))];
+            dato = { texto, minutos, participantes };
+        }
+    }
+    transcripcionesTeams.set(uri, dato);
+    return dato;
+}
+async function cargarTranscripcionTeams() {
+    const uri = $("reunionTeams").value, estado = $("estadoTeams"), id = ++cargaTeams;
+    if (!uri) { if (!estado.dataset.sinCoincidencia && reunionesTeams.length) estado.textContent = "No se usará transcripción de Teams en esta acta."; return; }
+    delete estado.dataset.sinCoincidencia;
+    estado.textContent = "⏳ Trayendo la transcripción de Teams…";
+    try {
+        const t = await obtenerTranscripcionTeams(uri);
+        if (id !== cargaTeams) return;
+        if (t.error) { estado.textContent = `⚠️ ${t.error} Usa un archivo fuente, el dictado o tus notas.`; return; }
+        estado.textContent = `✅ Transcripción lista: ${t.minutos ? `${t.minutos} min de grabación · ` : ""}${plural(t.participantes.length, "participante", "participantes")} (${t.participantes.join(", ")}). Claude la usará como fuente principal.`;
+        // Si no se indicaron las horas, se proponen con la duración agendada de la reunión
+        const r = reunionesTeams.find(x => x.uri === uri);
+        if (r?.inicio && r?.fin && !$("horas_ejecutadas").value.trim()) {
+            $("horas_ejecutadas").value = Math.max(0.5, Math.round((r.fin - r.inicio) / 1800000) / 2);
+            estado.textContent += " Las horas se tomaron de la duración agendada; ajústalas si hace falta.";
+        }
+    } catch { if (id === cargaTeams) estado.textContent = "No se pudo leer la transcripción en Microsoft 365. Pulsa «Buscar de nuevo» o usa otra fuente."; }
+}
+// La transcripción de Teams que se usará al analizar (o null si no se usa o no está disponible)
+async function transcripcionTeamsElegida(avisos) {
+    const uri = $("reunionTeams").value;
+    if (tipoProceso !== "consultoria" || !$("usar_teams").checked || !uri || !cap.mcp) return null;
+    try {
+        const t = await obtenerTranscripcionTeams(uri);
+        if (t.error) { avisos.push(`Transcripción de Teams: ${t.error}`); return null; }
+        return { texto: t.texto, titulo: reunionesTeams.find(x => x.uri === uri)?.titulo || "" };
+    } catch (e) {
+        if (e?.code === "cancelled") throw e;
+        avisos.push("No se pudo leer la transcripción de Teams; el acta se redactó con las demás fuentes.");
+        return null;
+    }
+}
+$("usar_teams").addEventListener("change", () => { $("teamsCuerpo").hidden = !$("usar_teams").checked; buscarReunionesTeams(); });
+$("btnBuscarTeams").addEventListener("click", () => { transcripcionesTeams.clear(); buscarReunionesTeams(); });
+$("reunionTeams").addEventListener("change", cargarTranscripcionTeams);
+$("fecha_ejecucion").addEventListener("change", buscarReunionesTeams);
+["nombre_cliente", "responsable_cliente"].forEach(c => $(c).addEventListener("change", () => (reunionesTeams.length ? pintarReunionesTeams() : buscarReunionesTeams())));
+document.querySelectorAll(".fx-tab").forEach(t => t.addEventListener("click", () => { if (t.dataset.tipo === "consultoria" && !reunionesTeams.length) buscarReunionesTeams(); }));
+
 // ---------- Arranque ----------
 (async () => {
     restaurarBorrador();
@@ -1656,5 +1866,6 @@ $("btnCerrarGuia").addEventListener("click", () => { escribirLocal(CLAVE_GUIA, t
     else if (!leerLocal(CLAVE_GUIA)) $("guiaInicio").hidden = false;
     if (revision) renderRevision();
     if (tipoProceso === "historial") cargarHistorial();
+    buscarReunionesTeams();
 })();
 </script>
